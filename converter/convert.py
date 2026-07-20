@@ -268,15 +268,57 @@ def page_has_table_candidate(fitz_page, page_text: str) -> bool:
     return False
 
 
+# === Fake-table filtering (Improvement 3) ===
+# On slide-deck layouts, pdfplumber mistakes the slide's frame rectangles for a table: the whole
+# page becomes a 1-column "table" (or 2 columns with one always empty), and the page text is then
+# emitted twice — once as body text, once inside the fake table (observed +2.4x duplication).
+# Signature of such a slide-frame fake table (ALL three must hold before we drop it):
+#   1. landscape page (width > height) — the slide-layout geometry where the failure occurs;
+#      portrait spec sheets legitimately box an entire page (full-page 1-column real tables exist),
+#      so the filter never touches portrait pages;
+#   2. the table bbox spans (almost) the entire page in BOTH dimensions — a genuine table, even a
+#      big one, sits inside the slide frame rather than being the frame itself;
+#   3. at most one column contains any content — no tabular (column-vs-column) structure, so the
+#      markdown table adds nothing over the body text it duplicates.
+#
+# Kill-switch: set T2N_FAKE_TABLE_FILTER=0 to restore pre-change behavior (keep all tables).
+#
+# Heuristic constant: bbox must cover at least this fraction of page width AND height. Slide
+# frames measure ~1.00 in both axes (sometimes 1.01 from stroke widths); 0.90 leaves margin for
+# frames inset by small slide padding while staying far above real in-frame tables.
+FAKE_TABLE_PAGE_COVER_FRAC = 0.90
+
+
+def _is_slide_frame_fake_table(table_obj, cleaned_rows, page_w: float, page_h: float) -> bool:
+    """True if a detected table matches the slide-frame fake-table signature (see block comment)."""
+    if page_w <= page_h:  # portrait page: never a slide frame
+        return False
+    x0, top, x1, bottom = table_obj.bbox
+    if (x1 - x0) < page_w * FAKE_TABLE_PAGE_COVER_FRAC:
+        return False
+    if (bottom - top) < page_h * FAKE_TABLE_PAGE_COVER_FRAC:
+        return False
+    content_cols = set()
+    for row in cleaned_rows:
+        for ci, cell in enumerate(row):
+            if cell.strip():
+                content_cols.add(ci)
+    return len(content_cols) <= 1
+
+
 # === Table extraction ===
 def extract_tables_md(plumber_page) -> list[str]:
     """Extract tables from a pdfplumber page, return as markdown strings."""
-    tables = plumber_page.extract_tables()
-    if not tables:
+    # find_tables() gives the same tables as extract_tables() (which is just
+    # [t.extract() for t in find_tables()]) plus the bbox needed by the fake-table filter.
+    found = plumber_page.find_tables()
+    if not found:
         return []
+    fake_filter_on = os.environ.get("T2N_FAKE_TABLE_FILTER", "1") != "0"
 
     md_tables = []
-    for table in tables:
+    for table_obj in found:
+        table = table_obj.extract()
         if not table or len(table) < 2:
             continue
 
@@ -290,6 +332,13 @@ def extract_tables_md(plumber_page) -> list[str]:
                 else:
                     cleaned_row.append(clean_text(str(cell)).replace("\n", " ").strip())
             cleaned.append(cleaned_row)
+
+        # Improvement 3: drop slide-frame fake tables (whole-page, single content column,
+        # landscape layout) — their content is already in the body text.
+        if fake_filter_on and _is_slide_frame_fake_table(
+            table_obj, cleaned, plumber_page.width, plumber_page.height
+        ):
+            continue
 
         # Filter: keep tables with >5% content cells (low bar — prefer to keep)
         content_cells = sum(1 for row in cleaned for cell in row if cell.strip())
