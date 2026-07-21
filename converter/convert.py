@@ -86,14 +86,18 @@ def clean_text(text: str) -> str:
 
 
 # === Figure/Table reference detection ===
+# Publishers typeset figure numbers with whichever dash their house style uses. Katzung 16e
+# uses en dashes throughout ("Figure 33–3"): 717 en dashes vs 8 ASCII hyphens, so matching
+# only [-.] found 14 of them and left figure extraction blind for the whole book.
+SEP = r'[-‐‑‒–—―−.]'
 FIG_TABLE_PATTERNS = [
     # English patterns
-    r'(?:Fig(?:ure)?\.?\s*\d+[\-\.]\d+[A-Za-z]*(?:\s*(?:and|to|,)\s*[A-Za-z])?)',
-    r'(?:(?:TABLE|Table)\s*\d+[\-\.]\d+[A-Za-z]*)',
-    r'(?:Box\s*\d+[\-\.]\d+)',
+    rf'(?:Fig(?:ure)?\.?\s*\d+{SEP}\d+[A-Za-z]*(?:\s*(?:and|to|,)\s*[A-Za-z])?)',
+    rf'(?:(?:TABLE|Table)\s*\d+{SEP}\d+[A-Za-z]*)',
+    rf'(?:Box\s*\d+{SEP}\d+)',
     # Chinese patterns
-    r'(?:圖\s*\d+[\-\.]\d+)',
-    r'(?:表\s*\d+[\-\.]\d+)',
+    rf'(?:圖\s*\d+{SEP}\d+)',
+    rf'(?:表\s*\d+{SEP}\d+)',
 ]
 FIG_TABLE_RE = re.compile('|'.join(FIG_TABLE_PATTERNS))
 
