@@ -72,10 +72,23 @@ def load_books() -> dict:
 
 
 # === Text cleaning ===
+# Typographic ligatures that PDF text layers emit as single codepoints.
+# Left as-is they silently break search: "specific" finds 0 hits in a corpus
+# that contains 116 occurrences of "speciﬁc". Mapped explicitly rather than via
+# NFKC so scientific notation (μ, −, superscripts) is left untouched.
+LIGATURES = {
+    'ﬀ': 'ff', 'ﬁ': 'fi', 'ﬂ': 'fl',
+    'ﬃ': 'ffi', 'ﬄ': 'ffl', 'ﬅ': 'st', 'ﬆ': 'st',
+}
+LIGATURE_RE = re.compile('[' + ''.join(LIGATURES) + ']')
+
+
 def clean_text(text: str) -> str:
-    """Remove control chars, soft hyphens, join broken lines."""
+    """Remove control chars, soft hyphens, ligatures, join broken lines."""
     # Remove control characters (keep \n and \t)
     text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
+    # Expand typographic ligatures so the corpus stays greppable
+    text = LIGATURE_RE.sub(lambda m: LIGATURES[m.group()], text)
     # Remove soft hyphens
     text = text.replace('\xad', '')
     # Join hyphenated line breaks: "hyphen-\nated" → "hyphenated"
