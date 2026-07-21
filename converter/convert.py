@@ -788,6 +788,24 @@ def split_epub_by_headings(text: str, out_dir: Path, label: str):
     return written
 
 
+# Presentational HTML that ebook toolchains (calibre in particular) leave behind and
+# pandoc passes straight through in gfm. It carries no meaning but dominates the output:
+# on one 52-chapter textbook it was 41% of all characters, diluting every chunk the
+# indexer builds. Semantic tags are deliberately NOT in this list — <sup>/<sub> carry
+# chemical formulae and charges, and table tags carry structure.
+_EPUB_NOISE_TAGS = ("a", "div", "span")
+_EPUB_NOISE_RE = re.compile(
+    r"</?(?:" + "|".join(_EPUB_NOISE_TAGS) + r")(?:\s[^>]*)?/?>", re.IGNORECASE
+)
+
+
+def strip_epub_noise(text: str) -> str:
+    """Drop presentational wrappers, keeping their inner text and all semantic tags."""
+    text = _EPUB_NOISE_RE.sub("", text)
+    # Collapse the blank-line runs the removed block wrappers leave behind.
+    return re.sub(r"\n{3,}", "\n\n", text)
+
+
 def convert_epub(epub_path: str, out_dir: Path, label: str = "") -> dict:
     """Convert an epub to searchable markdown (full_text.md + chapter files).
     Uses pandoc for text, recovers headings if pandoc emits none, then chapter-splits.
@@ -805,7 +823,7 @@ def convert_epub(epub_path: str, out_dir: Path, label: str = "") -> dict:
         ["pandoc", str(epub_path), "-t", "gfm", "--wrap=none", "-o", str(ft)],
         check=True, capture_output=True,
     )
-    text = ft.read_text(encoding="utf-8")
+    text = strip_epub_noise(ft.read_text(encoding="utf-8"))
 
     n_head = len(re.findall(r'(?m)^#{1,3} \S', text))
     if n_head < 5:
