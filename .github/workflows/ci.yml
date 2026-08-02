@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      # test_docling_tables.py is excluded here: it needs a full Docling
+      # install (heavyweight, model downloads). Run it locally before
+      # touching table-extraction code.
+      - name: Run converter test scripts
+        shell: bash
+        working-directory: converter
+        run: |
+          python test_review_queue.py
+          python test_table_fixes.py
+          python test_table_merge.py
+          python test_surya_ocr.py
+      - name: Run figures contract tests
+        shell: bash
+        working-directory: figures
+        run: python test_contract.py
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
