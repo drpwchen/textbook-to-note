@@ -11,6 +11,7 @@ loose semantic versioning.
 ## [Unreleased]
 
 ### Added
+- **CI (`.github/workflows/ci.yml`)** — GitHub Actions: the five hermetic test scripts (`converter/test_review_queue.py`, `test_table_fixes.py`, `test_table_merge.py`, `test_surya_ocr.py`, `figures/test_contract.py`) on an ubuntu + windows matrix, plus a gitleaks full-history secret scan on every push and PR. `test_docling_tables.py` stays local-only (needs a full Docling install). No runtime behavior change.
 - **Corpus-maintenance tools for whole-corpus and post-batch operations**, ported from the
   production toolchain ([`docs/corpus-maintenance.md`](docs/corpus-maintenance.md)). All three act
   on an existing corpus rather than a single conversion, and the two that rewrite files default to

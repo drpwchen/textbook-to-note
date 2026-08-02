@@ -1,5 +1,7 @@
 # textbook-to-note
 
+[![CI](https://github.com/drpwchen/textbook-to-note/actions/workflows/ci.yml/badge.svg)](https://github.com/drpwchen/textbook-to-note/actions/workflows/ci.yml)
+
 Turn your own PDF textbooks into an AI-searchable knowledge base and structured, fully-cited notes — figures included. A local-first pipeline that spends (almost) zero LLM tokens on the heavy lifting and reserves the frontier model for the one thing it's uniquely good at: synthesizing a note you can actually learn from.
 
 [繁體中文說明 → README.zh-TW.md](README.zh-TW.md)
