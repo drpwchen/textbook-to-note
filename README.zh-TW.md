@@ -134,3 +134,8 @@ shared/       環境變數驅動的設定（config.py）
 ## 授權
 
 MIT © 陳柏威 Po-Wei Chen（[drpwchen](https://github.com/drpwchen)）
+
+## Support 支持
+
+覺得這個工具有幫助嗎？歡迎[請我喝飲料](https://drpwchen.com/support/) 🧋
+If this tool helped you, you can [buy me a drink](https://drpwchen.com/en/support/).
