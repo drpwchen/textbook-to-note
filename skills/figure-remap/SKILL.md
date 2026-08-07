@@ -185,6 +185,19 @@ Those eight keys, no more and no fewer — `_validate()` in
   this, never on the engine method.== The precise method is logged only in a
   local QC log, deliberately kept out of the contract.
 - `status:pass` (exit 0) → `file` is a QC-passed crop; embed it.
+  ==**Embed the `file` string verbatim — never the `--out` you asked for, never
+  a name rebuilt from the `Fig_{id}_{Book}` convention.**== `file` is the
+  authoritative path and it legitimately differs from `--out`: the `auto` fast
+  path returns the book's pre-extracted image, so a template saying `.png` can
+  come back `.jpeg`. A rebuilt name is *derived from* the real one, so it reads
+  correct in review and only a machine catches it. Prove it:
+  ```bash
+  python {REPO}/figures/figure_embed_lint.py --notes-dir {NOTES_DIR} "<note.md>"
+  ```
+  exit 0 clean · 1 = MISSING (a guessed filename, or an embed written for an
+  extract that actually failed) or CASE MISMATCH (opens on Windows/macOS,
+  breaks on git and Linux) · 3 = notes dir not found = **unverifiable, not a
+  pass**.
 - `status:fail` (exit 1) → deterministic miss / hard_fail. ==NOT a wrong
   figure — a correct refusal.== Fix `--page`, escalate to vision, or leave a
   `<!-- TODO -->`.
@@ -365,6 +378,15 @@ Caption format varies per book — calibrate first to set the correct
 - Inspect `figures/figures_manifest.json`'s `fig_id` field if present
 - Inspect existing `figures/Fig_*` filenames
 
+==**The calibration output is a list to copy from, not a rule to apply.**==
+`--book`, `--fig-id` and `--caption` are exact-match strings: paste `--caption`
+**verbatim from the converted markdown** (don't retype it, don't tidy the
+spacing, don't translate it) and take `--book` verbatim from the directory name
+under your corpus root. If the fig_id you need isn't in the manifest or the grep
+output, ==say so and stop — do not construct one from the pattern==; a
+plausible-but-wrong fig_id is what makes geometric matching claim the
+neighbouring figure.
+
 Common variants:
 - Caption marker: `FIGURE` / `Figure` / `Fig.` / `Fig` / `FIG.`
 - Separator: `-` / `.` / en-dash / em-dash
@@ -411,6 +433,12 @@ caller MUST have:
 
 Do not imply a batch run will "fill this in later" — each agent extracts
 its own figures on demand.
+
+==A failed extract gets a TODO comment, never an embed.== Writing
+`![[Fig_X-Y_Book.png]]` for a figure that never passed QC produces a note that
+looks complete and renders a broken link — exactly what `figure_embed_lint.py`
+exists to catch. Run the lint on every note you touched before reporting done.
+
 
 ## Legacy: batch re-extraction (rarely used now)
 

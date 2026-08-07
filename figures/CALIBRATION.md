@@ -119,6 +119,35 @@ loosening the gate. Only change the env value when you've calibrated it
 against a whole book's figure set and confirmed the looser threshold doesn't
 let genuine failures through.
 
+## The calibration output is a list to copy from, not a rule to apply
+
+Everything above produces *exact-match strings*: a book id, a fig_id, a caption.
+Once you have them, copy them — don't regenerate them.
+
+- `--caption` is pasted **verbatim** from the converted markdown. Don't retype
+  it, don't normalize the spacing, don't translate it.
+- `--book` is the directory name under your corpus root, verbatim.
+- If the fig_id you need isn't in the manifest or the grep output, **stop and
+  say so**. Do not construct one from the pattern you just calibrated — a
+  plausible-but-wrong fig_id is precisely what makes geometric matching claim
+  the *neighbouring* figure, and the result passes QC because it is a perfectly
+  good crop of the wrong thing.
+- The path you embed in a note is the `file` field the contract returned, again
+  verbatim — not the `--out` you asked for. The `auto` fast path can hand back
+  the book's pre-extracted `.jpeg` where your template said `.png`.
+
+The failure mode all four share: a name *derived* from the real one reads
+correct in human review, because it was derived correctly-looking. Only a
+machine comparing against the source of truth catches it. That machine is:
+
+```bash
+python figures/figure_embed_lint.py --notes-dir {NOTES_DIR} path/to/notes/
+```
+
+It reports MISSING (a guessed filename, or an embed written for an extract that
+failed) and CASE MISMATCH (opens on Windows/macOS, breaks on git and Linux).
+Exit 3 means it couldn't find the notes dir — unverifiable, which is not a pass.
+
 ## Placeholder examples used above
 
 Where this guide says "an older edition scanned to PDF" or "a label-dense

@@ -11,6 +11,25 @@ loose semantic versioning.
 ## [Unreleased]
 
 ### Added
+- **`figures/figure_embed_lint.py`** — proves every figure a note embeds actually exists. The
+  extract contract already returns the authoritative path in its `file` field, but nothing checked
+  that notes used it: a filename rebuilt from the `--out` template or from the `Fig_{id}_{Book}`
+  convention looks right in review and only breaks at render time. Reports MISSING (a guessed name,
+  or an embed written for an extract that actually failed) and CASE MISMATCH (opens on
+  Windows/macOS, breaks on git and Linux). Exits 0 clean / 1 offenders / **3 unverifiable** — a lint
+  that can't reach its source of truth must never read as a pass.
+
+### Changed
+- **Exact-match strings are copied, never generated** — documented in
+  [`figures/CALIBRATION.md`](figures/CALIBRATION.md) and the `figure-remap` skill. `--caption` is
+  pasted verbatim from the converted markdown, `--book` verbatim from the corpus directory name, and
+  a fig_id that isn't in the manifest is a **stop**, not something to construct from the pattern you
+  just calibrated (a plausible-but-wrong fig_id makes geometric matching claim the *neighbouring*
+  figure — and it passes QC, because it is a perfectly good crop of the wrong thing). Notes embed
+  the contract's `file` value verbatim; a failed extract gets a `<!-- TODO -->` comment and never an
+  embed. No behavior change to the extractor itself.
+
+### Added
 - **CI (`.github/workflows/ci.yml`)** — GitHub Actions: the five hermetic test scripts (`converter/test_review_queue.py`, `test_table_fixes.py`, `test_table_merge.py`, `test_surya_ocr.py`, `figures/test_contract.py`) on an ubuntu + windows matrix, plus a gitleaks full-history secret scan on every push and PR. `test_docling_tables.py` stays local-only (needs a full Docling install). No runtime behavior change.
 - **Corpus-maintenance tools for whole-corpus and post-batch operations**, ported from the
   production toolchain ([`docs/corpus-maintenance.md`](docs/corpus-maintenance.md)). All three act
