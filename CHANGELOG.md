@@ -8,7 +8,7 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
-## [Unreleased]
+## [0.4.0] — 2026-08-07 — Exact-match strings
 
 ### Added
 - **`figures/figure_embed_lint.py`** — proves every figure a note embeds actually exists. The
