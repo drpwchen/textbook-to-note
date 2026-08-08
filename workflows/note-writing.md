@@ -390,6 +390,31 @@ to your own tool, but keep the underlying discipline:
 - **No unresolved citation placeholders.** Before finalizing, check the
   draft doesn't contain any "citation pending" / "metadata unavailable"
   style placeholder text.
+- **Read the chapter number off the corpus, never off the topic.** A book
+  plus a chapter number is an exact-match string, and a wrong one reads
+  perfectly: the surname is right, the number is plausible, the claim is
+  true — it just isn't in that chapter, or isn't in that book at all. Two
+  ways this goes wrong that human review does not catch:
+    - **One name, several books.** `ElMiedany Ch.5` is Psoriatic Arthritis
+      in the rheumatology volume and something unrelated in the pediatric
+      one. Cite the edition when a name is ambiguous (`Braddom 7e Ch.49`),
+      or pin a default in `_chapter_index.defaults.json`.
+    - **The converter's file sequence is not the book's chapter number.**
+      `ch105_Medical_Complications_of_SCI.md` is chapter 7 of its book.
+      Citing "Ch.105" points at content that is right and at a location
+      that does not exist on paper.
+
+  Check before you write, and again over the finished note:
+
+  ```bash
+  python {REPO}/citations/textbook_chapter_index.py --rebuild      # once per corpus change
+  python {REPO}/citations/textbook_ref_lint.py --refs "ElMiedany Ch.5"
+  python {REPO}/citations/textbook_ref_lint.py "<note.md>"
+  ```
+
+  Exit 1 = a reference is provably wrong. **Exit 3 = unverifiable** (book
+  not converted, or only partly converted) — that is not a pass; confirm it
+  yourself before the claim ships.
 
 ## Self-check before writing the file
 
@@ -398,7 +423,9 @@ to your own tool, but keep the underlying discipline:
    marked as inferred
 3. No nested bullets containing tables (most notes tools won't render that)
 4. Figures were QC-gated (Phase 3.5), not hand-embedded unverified
-5. If your notes tool has an automated format-lint hook, run it and resolve
+5. `textbook_ref_lint.py` run over the draft: every chapter reference either
+   resolves, or you confirmed the unverifiable ones by hand
+6. If your notes tool has an automated format-lint hook, run it and resolve
    every failure before writing — treat it as a mechanical pre-flight check,
    not a substitute for the judgment checks above
 

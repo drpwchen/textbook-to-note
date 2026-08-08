@@ -107,6 +107,7 @@ PyMuPDF 文字抽取，每頁約 130 毫秒。三個不那麼直覺的設計：
 ```
 converter/    PDF/EPUB → markdown（convert.py — 靜默失敗偵測＋雙欄排序＋表格閘門）
 figures/      圖片抽取 + 決定論 QC 閘門（進入點 figure_remap.py）
+citations/    章節引用回查——證明每個「Author Ch.N」真的指向存在的章節
 skills/       可直接放入 Claude Code 的 skill 定義（textbook-to-md、figure-remap）
 workflows/    筆記撰寫演算法（可改造成你自己的筆記系統）
 docs/         架構、OCR 階梯 + 硬體分級模型表、OCR adapter 介面規格

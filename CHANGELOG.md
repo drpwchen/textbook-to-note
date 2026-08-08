@@ -8,6 +8,39 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [0.5.0] — 2026-08-08 — Chapter references are checked, not trusted
+
+### Added
+- **`citations/textbook_chapter_index.py` + `citations/textbook_ref_lint.py`** — proves every
+  `Author Ch.N` citation in a note points at a chapter that actually exists, and prints that
+  chapter's real title so a human can see whether it matches the claim. The gap this closes: 0.4.0
+  made *figure filenames* exact-match strings, but a book plus a chapter number is one too — and a
+  wrong one reads perfectly. Right surname, plausible number, true claim, wrong location. Two
+  failure modes that survive human review because the content behind them is usually right:
+  - **One name, several books.** A note cited `ElMiedany Ch.5`; that chapter is Psoriatic Arthritis
+    in the rheumatology volume, and the intended source was a different ElMiedany book entirely.
+    Nothing in the citation says which book it means. Fix by citing the edition
+    (`Braddom 7e Ch.49`) or pinning a default in `_chapter_index.defaults.json`.
+  - **File sequence cited as chapter number.** `ch105_Medical_Complications_of_SCI.md` is chapter 7
+    of its book. "Ch.105" leads to the right content and to a location that does not exist on paper.
+  The index normalises the six filename conventions the converter has emitted (including
+  `<part>_<chapter>_Title.md`, and one-directory-per-chapter books) and records per-book
+  **coverage**, because a gap in a half-converted book means *cannot verify*, not *wrong citation*.
+  Verdicts: `BAD_CHAPTER` / `AMBIGUOUS` / `FILE_INDEX` (exit 1), `UNVERIFIABLE` (exit 3 — never a
+  pass), `OK`. Corpus location comes from `--textbook-dir` or `TEXTBOOK_DIR`.
+- **`citations/test_chapter_refs.py`** — hermetic regression suite (fake corpus in a temp dir, no
+  textbooks or network needed), wired into CI. Every case locks an invariant that was a real bug
+  found while running the lint over a live corpus: strategy ordering (ranking by "most chapters
+  matched" reads `02_8_Title.md` as chapter 2 and mislabels a whole book), leading-zero
+  normalisation, possessive stripping that must not eat a real trailing `s`, numeric — not lexical —
+  ordering when mapping a file sequence back to its chapter (`ch100` sorts before `ch11`), and the
+  coverage threshold that keeps a gap in a partly-converted book out of the offender list.
+
+### Changed
+- **`workflows/note-writing.md`** — new drafting rule ("read the chapter number off the corpus,
+  never off the topic") with both failure modes and the commands, plus a self-check item. Exit 3 is
+  called out explicitly as *not* a pass.
+
 ## [0.4.0] — 2026-08-07 — Exact-match strings
 
 ### Added

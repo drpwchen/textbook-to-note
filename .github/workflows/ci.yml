@@ -37,6 +37,11 @@ jobs:
         working-directory: figures
         run: python test_contract.py
 
+      - name: Run chapter-reference lint tests
+        shell: bash
+        working-directory: citations
+        run: python test_chapter_refs.py
+
   secret-scan:
     runs-on: ubuntu-latest
     steps:

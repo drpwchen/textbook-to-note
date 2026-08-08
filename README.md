@@ -115,6 +115,7 @@ You're probably here to have *your* AI set this up — that's the intended path:
 ```
 converter/    PDF/EPUB → markdown (convert.py — silent-failure + column-sort + table-gate)
 figures/      figure extraction + deterministic QC gate (figure_remap.py entrypoint)
+citations/    chapter-reference lint — proves every "Author Ch.N" points at a real chapter
 skills/       drop-in Claude Code skill definitions (textbook-to-md, figure-remap)
 workflows/    the note-writing algorithm (adapt to your own note system)
 docs/         architecture, OCR ladder + hardware tiers, OCR adapter contract
