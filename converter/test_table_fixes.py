@@ -573,6 +573,79 @@ check("partial-loss: a healthy book (ratio ~1) does not warn",
 check("partial-loss: a book with few captions is never judged on the ratio",
       _partial(0, 9) is False and _partial(1, 9) is False)
 
+# ── Fix 3: sideways-printed pages ───────────────────────────────────────────
+# A landscape mega-table imposed sideways on a portrait page: the page is /Rotate 0, but every
+# glyph carries a rotated text matrix. pdfplumber orders words by (top, x0) assuming upright text,
+# so it reads such a page bottom-to-top and hands back every cell character-reversed — markdown
+# that looks populated, greps clean, and is unusable. The fixture is built the way the real book is
+# (a landscape source page shown rotated into a portrait page), not by hand-rolling a text matrix,
+# so it exercises the same geometry the bug was found on (Carranza 12e TABLE 6-3, PDF p.157-384).
+SIDE_ROWS = [
+    ["Gene Symbol", "Disease Type", "Cases", "Population"],
+    ["ABCA1", "chronic", "22", "Japanese"],
+    ["ADCY9", "chronic", "41", "Japanese"],
+    ["IL4R", "aggressive", "251", "Caucasian"],
+]
+_land = fitz.open()
+_lp = _land.new_page(width=PAGE_H, height=PAGE_W)          # landscape source
+_lp.insert_text((40, 45), "TABLE 6-3  Association Study", fontsize=9)
+draw_grid(_lp, 40, 60, [130, 110, 70, 110], 22, SIDE_ROWS)
+
+p_side = tmp / "case_sideways.pdf"
+doc = fitz.open()
+pg = doc.new_page(width=PAGE_W, height=PAGE_H)             # portrait page, /Rotate 0
+pg.show_pdf_page(pg.rect, _land, 0, rotate=90)             # ...carrying the table sideways
+doc.save(str(p_side))
+doc.close()
+_land.close()
+
+import pdfplumber  # noqa: E402  (only needed for the two detector unit checks)
+
+with pdfplumber.open(str(p_side)) as _pl:
+    rot_side = cv.page_sideways_rotation(_pl.pages[0])
+with pdfplumber.open(str(p2)) as _pl:                      # the ordinary ruled table from case 2
+    rot_upright = cv.page_sideways_rotation(_pl.pages[0])
+
+check("Fix 3: a sideways page is detected and assigned a rotation",
+      rot_side in (90, 270), f"rot={rot_side}")
+check("Fix 3: an ordinary upright page is left alone",
+      rot_upright is None, f"rot={rot_upright}")
+
+md_s, st_s = convert(p_side, "sideways_on")
+md_s_off, st_s_off = convert(p_side, "sideways_off", {"T2N_SIDEWAYS": "0"})
+
+check("Fix 3: the fixture reproduces the bug when the fix is off (cells come back reversed)",
+      "1ACBA" in md_s_off, "expected reversed 'ABCA1' in the unfixed output")
+check("Fix 3: repaired output carries the cell text forward, not reversed",
+      "ABCA1" in md_s and "1ACBA" not in md_s)
+check("Fix 3: repaired output recovers the real header row",
+      "Gene Symbol" in md_s and "lobmyS eneG" not in md_s)
+check("Fix 3: the repair leaves a visible trace comment (a rewrite is never silent)",
+      "printed sideways" in md_s)
+check("Fix 3: the repair is counted in stats",
+      st_s.get("sideways_pages") == 1, f"sideways_pages={st_s.get('sideways_pages')}")
+check("Fix 3: kill-switch restores the pre-fix behavior",
+      st_s_off.get("sideways_pages") == 0 and "printed sideways" not in md_s_off)
+
+# Guard 2 — the detector that catches what the repair cannot reach (mixed-orientation pages, an
+# unexpected glyph orientation). It judges only against the page's own text layer: no word list,
+# no language assumption, and nothing is rejected without evidence from the source PDF.
+REV_PAGE_TEXT = ("Association study of periodontitis in a Japanese population. "
+                 "Multiple SNPs were genotyped.")
+check("Fix 3: cells that only match the page text reversed are rejected",
+      cv.reversed_text_reject_reason(
+          [["noitaicossA", "sititnodoirep"],
+           ["esenapaJ", "elpitluM", "noitalupop", "yduts"]], REV_PAGE_TEXT) is not None)
+check("Fix 3: ordinary forward cells are never rejected",
+      cv.reversed_text_reject_reason(
+          [["Association", "periodontitis"],
+           ["Japanese", "Multiple", "population", "study"]], REV_PAGE_TEXT) is None)
+check("Fix 3: a single reversed-looking token is not enough evidence",
+      cv.reversed_text_reject_reason([["sititnodoirep", "22"]], REV_PAGE_TEXT) is None)
+check("Fix 3: with no page text there is no oracle, so nothing is rejected",
+      cv.reversed_text_reject_reason([["sititnodoirep", "esenapaJ", "elpitluM",
+                                       "noitalupop", "yduts", "noitaicossA"]], "") is None)
+
 # ── report ──────────────────────────────────────────────────────────────────
 fails = [r for r in results if r[1] == "FAIL"]
 for name, status, detail in results:

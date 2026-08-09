@@ -21,6 +21,7 @@ If books.json doesn't exist, --batch prints the expected format and exits.
 
 import fitz
 import pdfplumber
+import io
 import os
 import re
 import shutil
@@ -525,14 +526,157 @@ def page_furniture_reject_reason(rows, bbox, page_h: float) -> str | None:
     return f"{where} band only, {chars} chars, spans {top / page_h:.0%}-{bottom / page_h:.0%} of page height"
 
 
-def extract_tables_md(plumber_page) -> tuple[list[str], list[str]]:
+# === Fix 3: sideways (rotated) text pages ===
+# A landscape mega-table is often printed sideways on a portrait page: the PAGE is /Rotate 0, but
+# every glyph carries a rotated text matrix (upright=False, matrix ≈ (0, s, -s, 0)). fitz reads such
+# a page correctly, so the page prose is fine — but pdfplumber orders words by (top, x0) on the
+# assumption that text is upright, so a line whose reading direction runs UP the page comes back
+# character-reversed ("periodontitis" → "sititnodoirep") with its columns scrambled. The markdown
+# then looks like a populated table and greps clean, which makes it the worst kind of silent
+# failure: the data is present, wrong, and unfindable. Observed on Carranza's Clinical
+# Periodontology 12e, TABLE 6-3 (PDF p.157–384, 228 pages of gene-association data).
+#
+# Two independent guards, because they fail differently:
+#   1. REPAIR — a page whose text is overwhelmingly sideways is re-parsed through an in-memory
+#      one-page copy with /Rotate set so the glyphs stand upright. pdfplumber then sees ordinary
+#      horizontal text, and both its word ordering and its ruling geometry come out right.
+#   2. DETECT — after extraction, a table whose tokens match the page's own text layer far better
+#      REVERSED than forward is rejected through the normal pseudo-table channel. This covers what
+#      repair cannot reach (mixed upright/sideways pages, an unexpected glyph orientation) and is
+#      what guarantees the pipeline never emits reversed cells silently.
+#
+# Kill-switch: T2N_SIDEWAYS=0 disables both guards (restores the pre-fix output).
+SIDEWAYS_MIN_CHARS = 40        # below this a page has too few glyphs to judge orientation
+SIDEWAYS_UPRIGHT_MAX = 0.20    # page counts as sideways when at most this fraction is upright
+REVERSED_MIN_TOKENS = 6        # need this many one-way tokens before calling a table reversed
+REVERSED_RATIO = 3.0           # reversed matches must beat forward matches by this factor
+
+_REV_TOKEN_RE = re.compile(r"[A-Za-z]{4,}")
+
+
+def sideways_enabled() -> bool:
+    return os.environ.get("T2N_SIDEWAYS", "1") != "0"
+
+
+def page_sideways_rotation(plumber_page) -> int | None:
+    """The /Rotate value that would stand this page's text upright, or None if it is already upright
+    (or too sparse, or too mixed to call). A glyph's text matrix (a, b, c, d, e, f) advances along
+    (a, b): upright text is (s, 0); text reading UP the page is (0, +s) and needs a 90° clockwise
+    turn; text reading DOWN is (0, -s) and needs 270°."""
+    try:
+        chars = plumber_page.chars
+    except Exception:
+        return None
+    if len(chars) < SIDEWAYS_MIN_CHARS:
+        return None
+    upright = up_dir = down_dir = 0
+    for c in chars:
+        if c.get("upright"):
+            upright += 1
+            continue
+        m = c.get("matrix")
+        if not m or len(m) < 2:
+            continue
+        if m[1] > 0:
+            up_dir += 1
+        elif m[1] < 0:
+            down_dir += 1
+    if upright / len(chars) > SIDEWAYS_UPRIGHT_MAX:
+        return None
+    if up_dir == down_dir == 0:
+        return None          # non-upright but no usable direction (e.g. flipped, not rotated)
+    return 90 if up_dir >= down_dir else 270
+
+
+def reversed_text_reject_reason(rows, page_text: str) -> str | None:
+    """Reject a table whose cell text matches the page's own text layer far better REVERSED than
+    forward — the signature of sideways glyphs read bottom-to-top. The page's fitz text is the
+    oracle, so this needs no word list and makes no language assumption; a table can only be
+    rejected on evidence present in the source PDF itself."""
+    if not page_text or not rows:
+        return None
+    ref = page_text.lower()
+    fwd = rev = 0
+    for row in rows:
+        for cell in row:
+            if not cell:
+                continue
+            for tok in _REV_TOKEN_RE.findall(str(cell)):
+                t = tok.lower()
+                if t == t[::-1]:
+                    continue          # a palindrome carries no direction
+                in_f, in_r = t in ref, t[::-1] in ref
+                if in_f and not in_r:
+                    fwd += 1
+                elif in_r and not in_f:
+                    rev += 1
+    if rev < REVERSED_MIN_TOKENS or rev < fwd * REVERSED_RATIO:
+        return None
+    return (f"cell text reads reversed against the page text layer ({rev} tokens match only when "
+            f"reversed vs {fwd} forward) — sideways/rotated glyphs mis-ordered by the table pass")
+
+
+class SidewaysReparse:
+    """Serves an upright stand-in for pages whose text is printed sideways.
+
+    `substitute()` returns the (pdfplumber page, fitz page) the table pass should actually use: the
+    originals for an ordinary page, or a rotated one-page copy when the page is sideways. Both
+    stand-ins come from the SAME rotated bytes, so the geometry `_gather_page_tables()` reads off
+    the fitz page matches the pdfplumber page it is pairing it with. The stand-in stays open until
+    the next `substitute()` or `release()` — each page is visited exactly once, so one live copy at
+    a time is enough."""
+
+    def __init__(self):
+        self._doc = None
+        self._plumber = None
+        self.repaired_pages = []
+        self.last_rotation = None      # rotation applied to the page just handed out, else None
+
+    def substitute(self, plumber_page, doc, index):
+        self.release()
+        self.last_rotation = None
+        if not sideways_enabled():
+            return plumber_page, doc[index]
+        rot = page_sideways_rotation(plumber_page)
+        if not rot:
+            return plumber_page, doc[index]
+        try:
+            one = fitz.open()
+            one.insert_pdf(doc, from_page=index, to_page=index)
+            one[0].set_rotation((doc[index].rotation + rot) % 360)
+            data = one.tobytes()
+            one.close()
+            self._doc = fitz.open("pdf", data)
+            self._plumber = pdfplumber.open(io.BytesIO(data))
+        except Exception:
+            # Repair is best-effort. On failure the original page is used and the reversed-text
+            # detector below still stops the defective table from being emitted.
+            self.release()
+            return plumber_page, doc[index]
+        self.repaired_pages.append((index + 1, rot))
+        self.last_rotation = rot
+        return self._plumber.pages[0], self._doc[0]
+
+    def release(self):
+        for obj in (self._plumber, self._doc):
+            try:
+                if obj is not None:
+                    obj.close()
+            except Exception:
+                pass
+        self._plumber = self._doc = None
+
+
+def extract_tables_md(plumber_page, page_text: str | None = None) -> tuple[list[str], list[str]]:
     """Extract tables from a pdfplumber page. Returns (markdown tables, rejection reasons).
     find_tables() is used rather than extract_tables() only to get each table's bbox — pdfplumber
     defines extract_tables() as exactly [t.extract() for t in find_tables()], so the extracted rows
-    are identical."""
+    are identical. `page_text` is the page's fitz text, used only as the oracle for the
+    reversed-text check (Fix 3); omitting it just skips that check."""
     md_tables, rejects = [], []
     page_w = float(plumber_page.width or 0)
     page_h = float(plumber_page.height or 0)
+    check_reversed = sideways_enabled()
     for table in plumber_page.find_tables():
         rows = table.extract()
         md = _table_to_md(rows)
@@ -540,7 +684,8 @@ def extract_tables_md(plumber_page) -> tuple[list[str], list[str]]:
             continue
         bbox = getattr(table, "bbox", None)
         reason = (page_frame_reject_reason(rows, bbox, page_w, page_h)
-                  or page_furniture_reject_reason(rows, bbox, page_h))
+                  or page_furniture_reject_reason(rows, bbox, page_h)
+                  or (reversed_text_reject_reason(rows, page_text) if check_reversed else None))
         if reason:
             rejects.append(reason)
             continue
@@ -607,6 +752,9 @@ def _gather_page_tables(plumber_page, fitz_page, page_num: int) -> tuple[list[di
     top_margin = TABLE_MERGE_MARGIN_FRAC * page_h
     bot_margin = page_h - TABLE_MERGE_MARGIN_FRAC * page_h
 
+    check_reversed = sideways_enabled()
+    fitz_text = fitz_page.get_text() if check_reversed else ""
+
     heading_ys = []  # y-centers of heading lines within the body band
     d = fitz_page.get_text("dict")
     for blk in d.get("blocks", []):
@@ -629,10 +777,13 @@ def _gather_page_tables(plumber_page, fitz_page, page_num: int) -> tuple[list[di
         if not md:
             continue
         # Same page-frame reject as the plain path, so the merge path cannot resurrect the defect
-        # (and cannot stitch two page-frame pseudo-tables into an even larger one).
+        # (and cannot stitch two page-frame pseudo-tables into an even larger one). The
+        # reversed-text reject rides along for the same reason: a sideways table must not reach
+        # the merge pass, where it would also drag its neighbours into a stitched mega-table.
         _bbox = getattr(t, "bbox", None)
         reason = (page_frame_reject_reason(rows, _bbox, page_w, page_h)
-                  or page_furniture_reject_reason(rows, _bbox, page_h))
+                  or page_furniture_reject_reason(rows, _bbox, page_h)
+                  or (reversed_text_reject_reason(rows, fitz_text) if check_reversed else None))
         if reason:
             rejects.append(reason)
             continue
@@ -894,6 +1045,7 @@ def convert_pdf(pdf_path: str, out_path: str, book_label: str, table_worker=None
     total_review_flagged = 0            # tables routed to the out-of-band review queue
     review_queue_entries = []           # [(page_no, [reasons])] — a batch caller can write a manifest
     page_errors = []  # (page_num, exc_type, message) — counted, never swallowed
+    sideways = SidewaysReparse()        # Fix 3: upright stand-in for sideways-printed pages
     detect_on = os.environ.get("T2N_BOOK_TABLE_CHECK", "1") != "0"
     table_gate_on = os.environ.get("T2N_TABLE_GATE", "1") != "0"
     merge_on = os.environ.get("T2N_TABLE_MERGE", "0") == "1"  # Improvement 3, default OFF
@@ -955,6 +1107,7 @@ def convert_pdf(pdf_path: str, out_path: str, book_label: str, table_worker=None
             # an empty flag list, so nothing extra is emitted and the output stays byte-identical
             # to the pdfplumber-only version.
             md_tables, rejects = [], []
+            page_sideways_rot = None
             try:
                 if not (table_gate_on and not page_has_table_candidate(doc[i], page_text)):
                     if docling_on:
@@ -983,8 +1136,14 @@ def convert_pdf(pdf_path: str, out_path: str, book_label: str, table_worker=None
                         # collapse modes remain guarded by page_frame_reject_reason().
                         _pp = plumber.pages[i]
                         try:
-                            plain, rejects = extract_tables_md(_pp)
+                            # Fix 3: a sideways-printed page is re-parsed upright first, otherwise
+                            # pdfplumber reads its glyphs bottom-to-top and every cell comes back
+                            # reversed.
+                            _tp, _ = sideways.substitute(_pp, doc, i)
+                            page_sideways_rot = sideways.last_rotation
+                            plain, rejects = extract_tables_md(_tp, page_text)
                         finally:
+                            sideways.release()
                             _release_plumber_page(_pp)
                         md_tables = [(m, []) for m in plain]
             except Exception as e:
@@ -992,6 +1151,9 @@ def convert_pdf(pdf_path: str, out_path: str, book_label: str, table_worker=None
                 # to look identical here (both produced zero tables and zero output); now the page
                 # failures are tallied and reported, and the book-level checks below cover the rest.
                 page_errors.append((i + 1, type(e).__name__, str(e)[:200]))
+            if page_sideways_rot:
+                output.append(f"\n<!-- ⚠️ page {i+1} is printed sideways — table pass re-parsed it "
+                              f"at /Rotate {page_sideways_rot} (Fix 3) -->")
             for reason in rejects:
                 total_rejected += 1
                 output.append(f"\n<!-- ⚠️ pseudo-table rejected on page {i+1} "
@@ -1023,29 +1185,39 @@ def convert_pdf(pdf_path: str, out_path: str, book_label: str, table_worker=None
         page_texts = []
         page_tables = []
         page_rejects = []
+        page_sideways = []
         for i in range(total_pages):
             page_text, fig_count = render_page_text(doc[i], i + 1)
             total_fig_refs += fig_count
             total_captions += len(TABLE_CAPTION_RE.findall(page_text))
             page_texts.append(page_text)
-            tbls, rejects = [], []
+            tbls, rejects, rot_note = [], [], None
             try:
                 if not (table_gate_on and not page_has_table_candidate(doc[i], page_text)):
                     _pp = plumber.pages[i]
                     try:
-                        tbls, rejects = _gather_page_tables(_pp, doc[i], i + 1)
+                        # Fix 3: same upright re-parse as the plain path. The stand-in supplies BOTH
+                        # pages so the fitz geometry read here matches the pdfplumber page it pairs.
+                        _tp, _tf = sideways.substitute(_pp, doc, i)
+                        rot_note = sideways.last_rotation
+                        tbls, rejects = _gather_page_tables(_tp, _tf, i + 1)
                     finally:
+                        sideways.release()
                         _release_plumber_page(_pp)
             except Exception as e:
                 page_errors.append((i + 1, type(e).__name__, str(e)[:200]))
             page_tables.append(tbls)
             page_rejects.append(rejects)
+            page_sideways.append(rot_note)
 
         emit_blocks = merge_page_tables(page_tables)
 
         for i in range(total_pages):
             output.append(f"\n<!-- page {i+1} -->\n")
             output.append(page_texts[i])
+            if page_sideways[i]:
+                output.append(f"\n<!-- ⚠️ page {i+1} is printed sideways — table pass re-parsed it "
+                              f"at /Rotate {page_sideways[i]} (Fix 3) -->")
             for reason in page_rejects[i]:
                 total_rejected += 1
                 output.append(f"\n<!-- ⚠️ pseudo-table rejected on page {i+1} "
@@ -1156,6 +1328,10 @@ def convert_pdf(pdf_path: str, out_path: str, book_label: str, table_worker=None
         "rejected_tables": total_rejected,
         "table_captions": total_captions,
         "page_errors": len(page_errors),
+        # Fix 3 telemetry: pages whose text was printed sideways and re-parsed upright before the
+        # table pass. Non-zero means this book contains landscape tables that the pre-fix pipeline
+        # would have emitted character-reversed.
+        "sideways_pages": len(sideways.repaired_pages),
         "warnings": warnings_out,
         # Docling rung telemetry. `docling_tables` counts tables sourced from Docling (the rest of
         # `tables` came from the pdfplumber fallback); `flagged_tables` counts tables carrying at
@@ -2188,6 +2364,8 @@ def main():
             print(f"Converting: {pdf_path}")
             stats = convert_pdf(pdf_path, out_path, label)
             print(f"[OK] {stats['pages']} pages | {stats['tables']} tables | {stats['fig_refs']} fig refs | {stats['size_kb']} KB")
+            if stats.get("sideways_pages"):
+                print(f"     {stats['sideways_pages']} sideways page(s) re-parsed upright (Fix 3)")
             if stats.get("rejected_tables"):
                 print(f"     {stats['rejected_tables']} page-frame pseudo-table(s) rejected")
             for w in stats.get("warnings", []):
