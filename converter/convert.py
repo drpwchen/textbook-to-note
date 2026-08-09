@@ -592,12 +592,23 @@ def reversed_text_reject_reason(rows, page_text: str) -> str | None:
     """Reject a table whose cell text matches the page's own text layer far better REVERSED than
     forward — the signature of sideways glyphs read bottom-to-top. The page's fitz text is the
     oracle, so this needs no word list and makes no language assumption; a table can only be
-    rejected on evidence present in the source PDF itself."""
+    rejected on evidence present in the source PDF itself.
+
+    Judged per ROW as well as over the whole table. A landscape table is often imposed sideways on
+    a page that is otherwise upright — a rotated header strip above upright body rows, or a page
+    that already carries `/Rotate 90` so only some of its glyphs come back non-upright. Such a page
+    is mixed, so the repair guard cannot stand it upright; and aggregating this check over the whole
+    table lets the upright body's forward tokens outvote the reversed header, so that row reaches
+    the markdown anyway. One reversed row is enough to reject, because every body cell under a
+    reversed header is bound to a column label that was read backwards and out of order. Rejecting
+    loses no content: the page prose, which fitz read correctly, is emitted either way."""
     if not page_text or not rows:
         return None
     ref = page_text.lower()
-    fwd = rev = 0
+    t_fwd = t_rev = 0
+    worst_row = None                  # (rev, fwd) of the most clearly reversed single row
     for row in rows:
+        r_fwd = r_rev = 0
         for cell in row:
             if not cell:
                 continue
@@ -607,13 +618,25 @@ def reversed_text_reject_reason(rows, page_text: str) -> str | None:
                     continue          # a palindrome carries no direction
                 in_f, in_r = t in ref, t[::-1] in ref
                 if in_f and not in_r:
-                    fwd += 1
+                    r_fwd += 1
                 elif in_r and not in_f:
-                    rev += 1
-    if rev < REVERSED_MIN_TOKENS or rev < fwd * REVERSED_RATIO:
-        return None
-    return (f"cell text reads reversed against the page text layer ({rev} tokens match only when "
-            f"reversed vs {fwd} forward) — sideways/rotated glyphs mis-ordered by the table pass")
+                    r_rev += 1
+        t_fwd += r_fwd
+        t_rev += r_rev
+        if r_rev >= REVERSED_MIN_TOKENS and r_rev >= r_fwd * REVERSED_RATIO:
+            if worst_row is None or r_rev > worst_row[0]:
+                worst_row = (r_rev, r_fwd)
+    if t_rev >= REVERSED_MIN_TOKENS and t_rev >= t_fwd * REVERSED_RATIO:
+        return (f"cell text reads reversed against the page text layer ({t_rev} tokens match only "
+                f"when reversed vs {t_fwd} forward) — sideways/rotated glyphs mis-ordered by the "
+                f"table pass")
+    if worst_row is not None:
+        r_rev, r_fwd = worst_row
+        return (f"one row reads reversed against the page text layer ({r_rev} tokens match only "
+                f"when reversed vs {r_fwd} forward in that row) — a sideways header strip on an "
+                f"otherwise upright page, so the body cells below it are bound to column labels "
+                f"that were read backwards")
+    return None
 
 
 class SidewaysReparse:

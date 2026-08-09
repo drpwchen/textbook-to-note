@@ -8,6 +8,36 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [0.6.1] — 2026-08-09 — The reversed-cell guard is judged per row, not per table
+
+### Fixed
+- **A sideways header strip on an otherwise upright page slipped past both guards.** 0.6.0's
+  repair guard stands a page upright only when its glyphs are *overwhelmingly* non-upright, and its
+  detect guard aggregated the reversed-vs-forward tally over the **whole table**. Neither covers the
+  common mixed page: a landscape table imposed sideways above upright body text, or a page that
+  already carries `/Rotate 90` so only part of its glyphs come back non-upright. The page is too
+  mixed to stand upright — rotating it would lay the upright half on its side — and the table's
+  upright body rows contribute enough forward tokens to outvote the reversed header, so the
+  table-wide ratio never trips. The reversed row reaches the markdown with a full body of real data
+  hanging under column labels that were read backwards and out of order.
+
+  The detect guard is now evaluated **per row as well as over the table**: one row meeting the same
+  unchanged thresholds (≥6 reversed-only tokens, beating forward matches ≥3:1) rejects the table.
+  No threshold was loosened — only the granularity of the tally — and rejecting costs no content,
+  since the page prose that fitz read correctly is emitted either way.
+
+  Blast radius measured before the change, over all 47,350 tables in a 286-book physical-medicine
+  corpus using each table's own page prose as the oracle: **17 tables newly rejected, in 5 books**
+  (Braddom 6e and 7e Table 43.1 "Inherited and Acquired Myopathies", two VA/DoD CPG recommendation
+  categorization appendices, one PRM research handbook). Every one was inspected and every one was
+  genuinely reversed — no good table is threatened by the rule. The failure predates 0.6.0: these
+  are tables the old aggregate happily emitted.
+
+  Tests: a mixed table (reversed header + three upright body rows) that the table-level rule scores
+  as clean, plus negative controls for an upright header, a 5-token row (one below the floor) and a
+  row that mixes reversed and forward text. Mutation-verified — dropping the per-row branch,
+  lowering the floor to 5, and removing the per-row ratio test each break a distinct test.
+
 ## [0.6.0] — 2026-08-09 — Tables printed sideways stop coming out backwards
 
 ### Fixed

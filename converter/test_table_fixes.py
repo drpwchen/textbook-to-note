@@ -646,6 +646,39 @@ check("Fix 3: with no page text there is no oracle, so nothing is rejected",
       cv.reversed_text_reject_reason([["sititnodoirep", "esenapaJ", "elpitluM",
                                        "noitalupop", "yduts", "noitaicossA"]], "") is None)
 
+# Guard 2 is judged per ROW, not only over the whole table. The real shape this misses when
+# aggregated: a landscape header strip printed sideways above upright body rows (Braddom 7e
+# Table 43.1; the VA/DoD CPG appendix tables). The body's forward tokens outnumber the header's
+# reversed ones, so a table-wide ratio never trips even though the header is unreadable and every
+# body cell under it is bound to the wrong column label.
+REV_MIXED_TEXT = ("Association study of periodontitis in a Japanese population. Multiple SNPs "
+                  "were genotyped. Results by cohort, subgroup, baseline severity and follow-up "
+                  "interval are reported for every recruitment site in the registry.")
+MIXED_TABLE = [
+    ["noitaicossA", "sititnodoirep", "esenapaJ", "noitalupop", "elpitluM", "yduts"],  # sideways
+    ["cohort", "subgroup", "baseline", "severity", "interval", "registry"],           # upright
+    ["Results", "recruitment", "reported", "genotyped", "follow", "every"],           # upright
+    ["Multiple", "Association", "Japanese", "population", "periodontitis", "study"],  # upright
+]
+check("Fix 3: a sideways header row is rejected even when the body outnumbers it",
+      cv.reversed_text_reject_reason(MIXED_TABLE, REV_MIXED_TEXT) is not None)
+check("Fix 3: the mixed-table rejection names the row, not the table",
+      "one row reads reversed" in (cv.reversed_text_reject_reason(MIXED_TABLE, REV_MIXED_TEXT) or ""))
+check("Fix 3: the same table with an upright header is left alone",
+      cv.reversed_text_reject_reason(
+          [["Association", "periodontitis", "Japanese", "population", "Multiple", "study"]]
+          + MIXED_TABLE[1:], REV_MIXED_TEXT) is None)
+check("Fix 3: per-row judging does not lower the evidence bar (5 reversed tokens in a row)",
+      cv.reversed_text_reject_reason(
+          [["noitaicossA", "sititnodoirep", "esenapaJ", "noitalupop", "elpitluM"]]
+          + MIXED_TABLE[1:], REV_MIXED_TEXT) is None)
+check("Fix 3: a row mixing reversed and forward text is not rejected on the reversed half alone",
+      cv.reversed_text_reject_reason(
+          [["noitaicossA", "sititnodoirep", "esenapaJ", "noitalupop", "elpitluM", "yduts",
+            "cohort", "subgroup", "baseline", "severity", "interval", "registry",
+            "Results", "recruitment", "reported", "genotyped", "follow", "every"]],
+          REV_MIXED_TEXT) is None)
+
 # ── Fix 3 guard 2 on the Docling rung ───────────────────────────────────────
 # The upright re-parse only reaches the pdfplumber path: when Docling is on AND returns tables for
 # a page, extract_tables_md() is never called for it. Without an explicit check on that rung, a
