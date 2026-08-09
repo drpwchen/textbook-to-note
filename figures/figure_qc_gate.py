@@ -31,7 +31,8 @@ Updates figure_qc_log.json on every check. Auto-suggests purge when fail_rate > 
 
 Configuration (env vars, see shared/config.py for BOOKS_DIR / OUTPUT_DIR):
   T2N_FIGURE_MD_BASE    — root of the converted-markdown library searched for the
-                          pre-extracted crop <root>/<book>/figures/ (default OUTPUT_DIR)
+                          pre-extracted crop <root>/<book>/figures/
+                          (falls back to TEXTBOOK_DIR, then OUTPUT_DIR)
   T2N_OLLAMA_HOST       — ollama base URL (default http://127.0.0.1:11434)
   T2N_OLLAMA_VISION_MODEL — vision model tag (default minicpm-v:8b)
   T2N_QC_LOG_PATH       — QC log file path (default <OUTPUT_DIR>/figure_qc_log.json)
@@ -56,6 +57,9 @@ from pathlib import Path
 # is where convert.py writes. (BOOKS_DIR is the *source PDF* folder; it holds no
 # markdown and no figures/, so it cannot be this root.) T2N_FIGURE_MD_BASE
 # overrides it for a corpus whose markdown lives apart from fresh conversions.
+# TEXTBOOK_DIR is honoured in between: citations/ already uses that name for this
+# same "converted markdown corpus", so a corpus that is already pointed at once
+# does not have to be pointed at twice under a second name.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from shared.config import DASH_CHARS
 try:
@@ -63,7 +67,9 @@ try:
 except ImportError:
     OUTPUT_DIR = Path("./output")
 
-TEXTBOOK_MD_BASE = Path(os.environ.get("T2N_FIGURE_MD_BASE") or OUTPUT_DIR)
+TEXTBOOK_MD_BASE = Path(os.environ.get("T2N_FIGURE_MD_BASE")
+                        or os.environ.get("TEXTBOOK_DIR")
+                        or OUTPUT_DIR)
 
 # ─── Figure-specific config (env-driven, not shared across the repo) ─────────
 OLLAMA = os.environ.get("T2N_OLLAMA_HOST", "http://127.0.0.1:11434")

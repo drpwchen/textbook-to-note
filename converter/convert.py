@@ -1122,6 +1122,18 @@ def convert_pdf(pdf_path: str, out_path: str, book_label: str, table_worker=None
                             dt.rows, repairs, _ = repair_ligatures(dt, doc=doc)
                             md = _table_to_md(dt.rows)
                             if md:
+                                # Fix 3 guard 2 rides on this rung too. The repair below only
+                                # reaches the pdfplumber path, so without this a sideways page
+                                # whose tables Docling DOES return would still emit reversed
+                                # cells silently — the one promise this fix has to keep is that
+                                # no rung of the ladder does that. Rejecting here also lets the
+                                # `if not md_tables` fallback hand the page to pdfplumber, which
+                                # re-parses it upright and can recover the table for real.
+                                rr = (reversed_text_reject_reason(dt.rows, page_text)
+                                      if sideways_enabled() else None)
+                                if rr:
+                                    rejects.append(f"docling rung: {rr}")
+                                    continue
                                 total_repairs += len(repairs)
                                 flags = qc_flags(dt, pdf_path=pdf_path, doc=doc)
                                 if repairs:
@@ -1141,7 +1153,10 @@ def convert_pdf(pdf_path: str, out_path: str, book_label: str, table_worker=None
                             # reversed.
                             _tp, _ = sideways.substitute(_pp, doc, i)
                             page_sideways_rot = sideways.last_rotation
-                            plain, rejects = extract_tables_md(_tp, page_text)
+                            plain, plumber_rejects = extract_tables_md(_tp, page_text)
+                            # Extend rather than replace: a Docling table rejected above must
+                            # still be reported even when pdfplumber then handles the page.
+                            rejects.extend(plumber_rejects)
                         finally:
                             sideways.release()
                             _release_plumber_page(_pp)

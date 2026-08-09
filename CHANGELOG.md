@@ -8,6 +8,65 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [0.6.0] — 2026-08-09 — Tables printed sideways stop coming out backwards
+
+### Fixed
+- **Sideways-printed pages emitted character-reversed tables** (#11, contributed by
+  [@retyu3245-arch](https://github.com/retyu3245-arch)). A landscape table is often imposed
+  *sideways* on a portrait page: the page is `/Rotate 0`, but every glyph carries a rotated text
+  matrix. fitz reads such a page correctly, so the prose is fine — but pdfplumber orders words by
+  `(top, x0)` assuming upright text, so it reads the page bottom-to-top and hands back every cell
+  reversed with its columns scrambled: `periodontitis` → `sititnodoirep`.
+
+  This is the failure mode this project exists to end. The log is green, the markdown looks like a
+  populated table, and grep never errors — it just silently never matches. The data is present,
+  wrong, and unfindable.
+
+  Two independent guards, because they fail differently. **Repair:** a page whose glyphs are
+  overwhelmingly non-upright is re-parsed through an in-memory one-page copy with `/Rotate` set so
+  the text stands upright; the direction comes from the text matrix rather than being hardcoded,
+  and both stand-in pages come from the same bytes so the fitz geometry matches the pdfplumber page
+  it is paired with. **Detect:** a table whose tokens match the page's own text layer far better
+  reversed than forward is rejected through the existing pseudo-table channel — no word list and no
+  language assumption, so a table is rejected only on evidence from the source PDF itself. The
+  repair leaves an HTML comment and is counted in `stats["sideways_pages"]`; a rewrite is never
+  silent. Kill-switch `T2N_SIDEWAYS=0` disables both.
+
+  Measured on a six-book dental corpus (~7,100 pages): 249 sideways pages repaired in one 12th
+  edition alone, 1,784 reversed tokens → 0, usable tables 92 → 334. Measured again before merge on
+  an unrelated physical-medicine corpus of 286 books: **34 books, ~99 tables, 378 rows** were
+  reversed — electrotherapy parameter tables, hip-OA injection trial tables, differential-diagnosis
+  grids. Not a typesetting quirk of one publisher.
+
+  Pages that are not sideways are byte-identical before and after, in both the plain and the
+  cross-page-merge path.
+- **The Docling rung could still emit reversed cells.** The repair above only reaches the
+  pdfplumber path: when `T2N_DOCLING=1` and Docling returns tables for a page,
+  `extract_tables_md()` is never called for it, so neither guard ran. The detect guard now rides on
+  that rung too — its oracle (the page's fitz text) is already in hand there, so the cost is a
+  string comparison. A rejected Docling table also lets the page fall through to pdfplumber, which
+  re-parses it upright and can recover the table for real. The reject list is now extended rather
+  than replaced at that hand-off, so a Docling-rung rejection is still reported when pdfplumber
+  then handles the page.
+- **The figure crop fast path looked under the source-PDF folder** (#12, contributed by
+  [@drivysu](https://github.com/drivysu)). `figures/figure_qc_gate.py` imported `BOOKS_DIR` as
+  `TEXTBOOK_MD_BASE` and then looked for the pre-extracted crop at `<root>/<book>/figures/`. But
+  `BOOKS_DIR` is the *source PDF* folder everywhere else in the repo (`books.json`,
+  `already_converted.json`, `--batch-dir`, `rename_skip.json`), and a PDF folder has no per-book
+  markdown directories and no `figures/` — so no single value could satisfy both readings. Setting
+  it for the converter broke the figure cache; setting it for the figure gate broke the converter.
+  The crop root now resolves from `OUTPUT_DIR`, where `convert.py` writes.
+
+  Quiet rather than loud: under `--source auto` the cache simply always missed and the entrypoint
+  fell through to strict geometric re-extraction, so figures still came out *correct*, just
+  re-extracted on every call. `--source existing` is the loud case — cache-only, so it hard-failed
+  on a corpus where the crops did exist.
+
+### Changed
+- The figure crop root now resolves `T2N_FIGURE_MD_BASE` → `TEXTBOOK_DIR` → `OUTPUT_DIR`.
+  `citations/` already used `TEXTBOOK_DIR` for this same "converted markdown corpus", so a corpus
+  that has been pointed at once no longer has to be pointed at twice under a second name.
+
 ## [0.5.0] — 2026-08-08 — Chapter references are checked, not trusted
 
 ### Added

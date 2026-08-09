@@ -646,6 +646,72 @@ check("Fix 3: with no page text there is no oracle, so nothing is rejected",
       cv.reversed_text_reject_reason([["sititnodoirep", "esenapaJ", "elpitluM",
                                        "noitalupop", "yduts", "noitaicossA"]], "") is None)
 
+# ── Fix 3 guard 2 on the Docling rung ───────────────────────────────────────
+# The upright re-parse only reaches the pdfplumber path: when Docling is on AND returns tables for
+# a page, extract_tables_md() is never called for it. Without an explicit check on that rung, a
+# sideways page whose tables Docling does return would still emit reversed cells silently, so the
+# guarantee "no reversed cells reach the markdown" would hold for one rung rather than for the
+# pipeline. Driven through convert_pdf's own table_worker seam — no Docling install needed.
+import docling_tables as _dtmod  # noqa: E402
+
+REV_PROSE = ("Association study of periodontitis in a Japanese population. Multiple SNPs were "
+             "genotyped in this cohort and the study reports allele frequencies by subgroup.")
+p_drev = tmp / "case_docling_reversed.pdf"
+_d = fitz.open()
+_dp = _d.new_page(width=PAGE_W, height=PAGE_H)
+_dp.insert_text((40, 60), REV_PROSE[:78], fontsize=9)
+_dp.insert_text((40, 76), REV_PROSE[78:], fontsize=9)
+_d.save(str(p_drev))
+_d.close()
+
+_REV_ROWS = [["noitaicossA", "sititnodoirep", "esenapaJ"],
+             ["elpitluM", "noitalupop", "yduts"]]
+
+
+class _ReversedWorker:
+    """Stands in for DoclingTableWorker: hands back one reversed table for every page."""
+
+    def tables_for_page(self, pdf_path, page_no):
+        return [_dtmod.DoclingTable(page_no=page_no, shape=(2, 3), bbox={},
+                                    rows=[r[:] for r in _REV_ROWS], cells=[])]
+
+    def status(self):
+        return {"failure_count": 0}
+
+    def close(self):
+        pass
+
+
+def _convert_with_worker(out_name, env):
+    old = {}
+    for k, v in env.items():
+        old[k] = os.environ.get(k)
+        os.environ[k] = v
+    try:
+        out = str(p_drev) + f".{out_name}.md"
+        stats = cv.convert_pdf(str(p_drev), out, "test", table_worker=_ReversedWorker())
+        return Path(out).read_text(encoding="utf-8"), stats
+    finally:
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+_DOC_ENV = {"T2N_DOCLING": "1", "T2N_TABLE_GATE": "0"}
+md_dr, _ = _convert_with_worker("docling_rev_on", _DOC_ENV)
+md_dr_off, _ = _convert_with_worker("docling_rev_off", dict(_DOC_ENV, T2N_SIDEWAYS="0"))
+
+check("Fix 3/docling: a reversed table from the Docling rung never reaches the markdown",
+      "sititnodoirep" not in md_dr)
+# Also pins the reject list being extended rather than replaced: the pdfplumber fallback runs
+# right after this rejection (md_tables is empty), and an assignment there would drop the notice.
+check("Fix 3/docling: the rejection is reported and survives the pdfplumber fallback",
+      "docling rung" in md_dr)
+check("Fix 3/docling: kill-switch lets it through again — the new check is what stops it",
+      "sititnodoirep" in md_dr_off and "docling rung" not in md_dr_off)
+
 # ── report ──────────────────────────────────────────────────────────────────
 fails = [r for r in results if r[1] == "FAIL"]
 for name, status, detail in results:
