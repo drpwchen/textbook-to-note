@@ -254,6 +254,20 @@ md6_off, st6_off = convert(p6, "off", {"T2N_BOOK_TABLE_CHECK": "0"})
 check("case6: kill-switch silences the book-level detector",
       st6_off["warnings"] == [] and "[!warning]" not in md6_off, f"warnings={st6_off['warnings']}")
 
+# ── case 6b: en-dash caption numbering must be counted (#13) ──────────────────
+# Morgan & Mikhail 7e numbers its tables "TABLE 1–1" (en dash). The caption counter used a literal
+# [.-] separator, counted 0 captions, and silently disarmed BOTH book-level checks — the whole-book
+# equivalent of the figure-ref dash blindness fixed in #10. Tested on the regex directly (case 6
+# already exercises the counter wiring end-to-end; fitz's base-14 helv font cannot embed an en
+# dash into a fixture PDF, it comes out as "?").
+for _dash, _name in [("–", "en dash"), ("—", "em dash"), ("-", "hyphen"), (".", "period")]:
+    _hits = cv.TABLE_CAPTION_RE.findall(
+        "\n".join(f"TABLE 3{_dash}{i} Borderless summary of findings" for i in range(1, 15)))
+    check(f"case6b: captions numbered with {_name} ('TABLE 3{_dash}1') are counted",
+          len(_hits) == 14, f"hits={len(_hits)}")
+check("case6b: prose containing 'comfortable 1-2' is not a caption",
+      not cv.TABLE_CAPTION_RE.search("a comfortable 1-2 hour recovery"))
+
 # ── case 7: running-header furniture pseudo-table (T2N_TABLE_FURNITURE_REJECT) ─
 # The second fabricated-table family (faketable-rootcause.md BUG 2). Page furniture — a running
 # header, a shaded chapter bar, an e-reader nav bar — is drawn as stacked/nested rectangles that

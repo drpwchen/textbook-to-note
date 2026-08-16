@@ -8,6 +8,34 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [0.6.2] — 2026-08-16 — The caption counter learns the same dashes the fig-ref pass already knew
+
+### Fixed
+- **The whole-book table-loss warning never fired on books that number tables with an en dash**
+  ([#13](https://github.com/drpwchen/textbook-to-note/issues/13)). Both book-level checks
+  (zero-table and partial-loss) key on `total_captions`, and the caption counter's regex accepted
+  only a literal `.` or ASCII `-` between the chapter and table number. Morgan & Mikhail's Clinical
+  Anesthesiology 7e writes "TABLE 1–1" (en dash) throughout: the counter saw **0 captions**, the
+  `>= 10 captions` guard on both branches never opened, and a book that lost essentially all of its
+  tables (2 extracted against ~600 caption/ref mentions) shipped with **no `[!warning]` block at
+  all** — precisely the silent outcome those checks exist to prevent.
+
+  This is the whole-book twin of [#10](https://github.com/drpwchen/textbook-to-note/issues/10)
+  (figure refs blind to en dashes in Katzung 16e). The fig-ref fix moved its dash set into
+  `shared/config.py` as `SEP_CLASS`; the caption counter simply never adopted it. It does now —
+  one regex separator changed, no thresholds touched, extraction itself unchanged. On the
+  reporter's book the partial-loss branch fires as designed and the warning block appears at the
+  top of the markdown.
+
+  Note the warning is the fix's whole payload: the underlying loss (tables pdfplumber cannot see
+  on those pages) is a known limitation the warning exists to surface, not something this release
+  changes.
+
+  Tests: caption counting across en dash / em dash / hyphen / period numbering plus a
+  false-positive control, in `test_table_fixes.py` (the end-to-end counter wiring was already
+  covered by case 6; a PDF fixture cannot carry the en dash itself because fitz's base-14 font
+  maps it to "?").
+
 ## [0.6.1] — 2026-08-09 — The reversed-cell guard is judged per row, not per table
 
 ### Fixed

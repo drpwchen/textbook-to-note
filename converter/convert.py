@@ -976,7 +976,13 @@ def _book_reliability_flagged(content_loss_tables: int, total_tables: int) -> bo
     a 0-table book never divides by zero)."""
     return (total_tables >= BOOK_HIGH_FLAG_MIN_TABLES
             and content_loss_tables / total_tables >= BOOK_CONTENT_LOSS_RATE)
-TABLE_CAPTION_RE = re.compile(r'^\s*(?:TABLE|Table)\s+\d+[.\-]\d+', re.M)
+
+
+# Caption counter feeding the book-level warnings above. The separator MUST be SEP_CLASS, not a
+# literal [.-]: publishers that number tables with an en dash ("TABLE 1–1", Morgan & Mikhail 7e)
+# otherwise count 0 captions, which silently disarms BOTH whole-book table-loss checks (#13) —
+# the same dash blindness that hit figure refs in #10.
+TABLE_CAPTION_RE = re.compile(rf'^\s*(?:TABLE|Table)\s+\d+{SEP_CLASS}\d+', re.M)
 
 
 # === Core conversion ===
