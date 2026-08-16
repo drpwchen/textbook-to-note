@@ -8,6 +8,24 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [0.6.3] — 2026-08-16 — The GPU rungs can take a machine-wide lease
+
+### Added
+- **Optional GPU-lease integration for the Surya and Docling rungs** (ported from the private
+  deployment of this pipeline, where it has been running since 2026-08-10). On a machine that runs
+  several GPU jobs (OCR batches, embedding indexers, transcription), two of them loading models
+  onto the same card at once ends in OOM or a silently throttled crawl. `_gpu_lease_ctx()` in
+  `converter/convert.py` now brackets the GPU rungs with a FIFO lease when a broker is present:
+  Surya per adapter subprocess batch (so queued short jobs can slip in mid-book), Docling for the
+  worker's whole lifetime (its model sits in VRAM until `close()` — `convert_pdf`'s self-created
+  worker and `scan_table_pass.py`'s batch worker both hold it create-to-close).
+
+  **No setup required**: without a broker the context is a `contextlib.nullcontext` and behavior
+  is byte-identical to 0.6.2 — the pipeline stays standalone. To integrate, point
+  `T2N_GPU_LEASE_DIR` at a directory whose `gpu_lease.py` exposes
+  `lease(name, min_free_mb=..., timeout=...)` as a context manager. The fitz/pdfplumber path is
+  pure CPU and never takes the lease.
+
 ## [0.6.2] — 2026-08-16 — The caption counter learns the same dashes the fig-ref pass already knew
 
 ### Fixed

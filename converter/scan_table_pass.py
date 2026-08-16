@@ -133,6 +133,11 @@ def main() -> int:
         ap.error("pass --book/--pdf, or --from-progress + --books-json")
 
     print(f"books to recover tables for: {len(jobs)}" + (" [DRY-RUN]" if args.dry_run else ""))
+    # GPU lease brackets the warm Docling worker's whole lifetime — it keeps its
+    # model in VRAM until close(). (The docstring rule "wrap the call in a GPU
+    # lease" is now enforced in code, not just prose; no-op without a broker.)
+    _lease = convert._gpu_lease_ctx("t2n_scan_tables")
+    _lease.__enter__()
     worker = DoclingTableWorker()
     total_pages = total_tables = 0
     try:
@@ -144,6 +149,7 @@ def main() -> int:
     finally:
         status = worker.status()
         worker.close()
+        _lease.__exit__(None, None, None)
     print(f"\ntotal {total_tables} tables / {total_pages} pages scanned"
           f" (docling failure pages: {status.get('failure_count', 0)})")
     return 0

@@ -54,6 +54,26 @@ except Exception as _e:  # pragma: no cover - exercised only on a broken install
     repair_ligatures = format_repair_marker = None
     _DOCLING_IMPORT_ERROR = f"{type(_e).__name__}: {_e}"
 
+# Optional machine-wide GPU lease. Only the GPU rungs take it — Surya per subprocess
+# batch, Docling for the worker's lifetime; the fitz/pdfplumber path is pure CPU and
+# must NOT hold the card. On machines without a lease broker this is a silent no-op,
+# so the pipeline needs no setup to run standalone. To integrate with one, point
+# T2N_GPU_LEASE_DIR at a directory whose `gpu_lease.py` exposes
+# `lease(name, min_free_mb=..., timeout=...)` as a context manager (blocking acquire,
+# raising on timeout — never run the GPU unleased when a broker is present).
+def _gpu_lease_ctx(name: str, min_free_mb: int = 5000, timeout: float = 7200):
+    import contextlib
+    lease_dir = os.path.expanduser(
+        os.environ.get("T2N_GPU_LEASE_DIR", "~/.claude/scripts"))
+    if lease_dir not in sys.path:
+        sys.path.insert(0, lease_dir)
+    try:
+        from gpu_lease import lease
+    except ImportError:
+        return contextlib.nullcontext()
+    return lease(name, min_free_mb=min_free_mb, timeout=timeout)
+
+
 # === Config ===
 OUTPUT_BASE = OUTPUT_DIR
 BOOKS_JSON = BOOKS_DIR / "books.json"
@@ -1104,6 +1124,11 @@ def convert_pdf(pdf_path: str, out_path: str, book_label: str, table_worker=None
             docling_on = False
             docling_note = "T2N_DOCLING=1 ignored: not yet supported together with T2N_TABLE_MERGE=1"
         elif table_worker is None:
+            # The lease must live exactly as long as the worker (its model sits in
+            # VRAM until close()). Crash paths self-heal: the broker reaps a lease
+            # whose holding process died.
+            _owned_worker_lease = _gpu_lease_ctx("t2n_docling")
+            _owned_worker_lease.__enter__()
             table_worker = DoclingTableWorker()
             owns_worker = True
 
@@ -1290,6 +1315,7 @@ def convert_pdf(pdf_path: str, out_path: str, book_label: str, table_worker=None
         # Only a worker this call created is closed here. A worker passed in by a batch caller
         # outlives this book on purpose — that is the whole point of hoisting the cold start.
         table_worker.close()
+        _owned_worker_lease.__exit__(None, None, None)
 
     # Book-level failure detection (pure detection — nothing about extraction changes here).
     warnings_out = []
@@ -2086,10 +2112,14 @@ def surya_ocr_pdf(pdf_path: str, out_md_path: str, dpi: int = 300, batch_size: i
         for start in range(0, total, batch_size):
             batch = img_paths[start:start+batch_size]
             seen_in_batch = set()
-            result = subprocess.run(
-                [str(SURYA_VENV_PY), str(SURYA_ADAPTER)] + batch,
-                capture_output=True, timeout=1800
-            )
+            # Per-batch lease: each batch is its own adapter subprocess with no
+            # cross-batch state, so releasing between batches lets queued short
+            # GPU jobs slip in mid-book.
+            with _gpu_lease_ctx("t2n_surya"):
+                result = subprocess.run(
+                    [str(SURYA_VENV_PY), str(SURYA_ADAPTER)] + batch,
+                    capture_output=True, timeout=1800
+                )
             if result.returncode != 0:
                 # Windows subprocess stdout/stderr defaults to the system codepage
                 # (e.g. cp950 on a Traditional Chinese locale), not UTF-8 — decode
