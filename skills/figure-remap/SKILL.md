@@ -180,9 +180,10 @@ Contract returned (and ONLY this — never the gate's internal shape):
 ```
 Those eight keys, no more and no fewer — `_validate()` in
 `figures/figure_remap.py` raises on any extra or missing key.
-- `qc_degraded` / `qc_skipped`: some QC checks could not run (e.g. the source
-  page render was unavailable), so a `pass` here is weaker than a fully-gated
-  one. Treat a degraded pass as "embed, but eyeball it".
+- `qc_degraded` / `qc_skipped`: one of the two BLOCKING checks could not run
+  (e.g. the source page render was unavailable), so a `pass` here is weaker
+  than a fully-gated one. Treat a degraded pass as "embed, but eyeball it". A
+  skipped advisory check never sets this — it was never gating anything.
 - `match_quality`: `exact` = deterministic geometric match · `uncertain` = a
   fallback crop (only with `--no-strict`) · `failed` = no crop. ==Branch on
   this, never on the engine method.== The precise method is logged only in a
@@ -306,10 +307,16 @@ which handles the ladder + QC in one call (first success wins):
 4. **Escalate** — exit code `2` → read the page render, estimate bbox,
    re-call the gate with `--bbox`
 
-QC on each candidate: deterministic checks **block** (whitespace fill
-≥80%, text-bleed <100 chars, OCR long-lines ≤7); the local vision model's
-caption match is **advisory only** (logged, never blocks — too noisy to
-gate on).
+QC on each candidate: two checks, both pure computation, both **block**
+(whitespace fill ≥80%, text-bleed <50 prose chars). **No model participates
+in QC** — a model-backed check gave the same crop different verdicts on
+repeat runs (issue #16), so nothing a vision model says can gate, and the
+QC chain no longer calls one at all. The only vision call left in the gate
+is the bbox suggestion in rung 3, which the strict default never reaches;
+its output is a proposal that must still pass the computed checks, and it
+is pinned to greedy decoding (temperature 0, top_k 1, fixed seed) so it
+does not drift between runs. Whether a QC-passed crop is *worth embedding*
+is judged downstream by the workflow's frontier-model classification step.
 
 Exit codes: `0` ok (saved to `--out`) · `2` escalate to frontier vision ·
 other → log + skip.
@@ -485,9 +492,9 @@ Everything referenced above lives under `{REPO}/figures/`:
   on-demand extraction + QC gate
 - `figure_scanned.py` — scanned/hybrid `caption_anchor` backend
 - `qc_metrics.py` — batch QC metric computation
-- `visual_check.py` — local-vision-model sample verification (used inside
-  the gate)
-- `visual_check_batch.py` — batch-mode visual-check runner
+- `visual_check.py` — legacy: local-vision-model sample verification, used
+  only by the batch tools (never by the gate or the note-writing workflow)
+- `visual_check_batch.py` — legacy: batch-mode visual-check runner
 - `batch_remap.py` — legacy: whole-book batch re-extraction
 - `test_contract.py` — regression test suite for the entrypoint contract
 - `CALIBRATION.md` — per-book quirks accumulated from batch runs (still

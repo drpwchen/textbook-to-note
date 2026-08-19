@@ -8,6 +8,84 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [0.7.1] — 2026-08-19 — A check that asks a model cannot be the one that blocks
+
+### Changed
+- **The QC chain is now model-free: the OCR long-line check (`qc_text_contamination`) and the
+  caption-match check (`qc_caption_match`) are no longer called at all**
+  (`figures/figure_qc_gate.py`, issue #16). Two checks remain, both pure computation, both
+  blocking: whitespace fill and fitz text bleed. `figure_remap.py extract` is documented as a
+  deterministic contract: a `pass` is the figure the caption owns, a `fail` is a correct
+  refusal. It wasn't one — the long-line check asked the local vision model to transcribe the
+  crop and counted lines ≥ 30 chars, so the gate inherited the model's run-to-run variation,
+  and a crop whose count sat near the threshold of 7 came back `pass` on one run and `fail` on
+  the next with no input changed.
+
+  **Measured** on 25 crops (the ones that actually reach this check, out of 48 figures across
+  12 born-digital textbooks), each crop run 5×:
+
+  | | drifting line count | verdict crossed the threshold |
+  |---|---|---|
+  | unchanged code | 16/24 | 7/24 |
+  | greedy decoding pinned | 10/25 | 2/25 |
+
+  Pinning the decode removed the *sampling* half and nothing else. What survived has a shape:
+  every unstable crop reads `[first, x, x, x, x]` — only the FIRST call on a crop differs,
+  because it is computed against whatever the previous image left in the server's cache;
+  repeats hit that cache and agree. An extraction only ever makes that first call. End-to-end,
+  48 specs run twice, `status` + output sha256 compared: 3/48 flipped before, 1/48 with
+  decoding pinned, 0/48 with the calls removed.
+
+  So there is no threshold to fix, and no "advisory log" worth keeping either: a per-crop
+  number that changes between runs cannot gate *or* inform, and it cost ~2 s of GPU per
+  successful extraction to record. Both model-backed checks were removed from the chain
+  outright (the functions remain as opt-in diagnostics, marked legacy). With them gone, the
+  strict extraction path — the default, and the only path the note-writing workflow uses —
+  **makes no ollama call at all**; the only vision call left anywhere in the gate is the bbox
+  suggestion inside the discouraged `--no-strict` fallback ladder, whose proposal must still
+  pass the computed checks. Whether a QC-passed crop is *worth embedding* is judged where it
+  already lives: the workflow's frontier-tier classification step, which reads every crop
+  before any embed (added in 0.7.0).
+
+  **Removing them costs nothing on the path that matters:** `qc_text_bleed` reads the PDF's
+  own text layer and catches the same failure mode — a crop that swallowed a sentence — with
+  better evidence, and the scanned backend never enters this chain at all
+  (`figure_scanned.py` runs its own whitespace-only QC). `qc_degradation()` accordingly only
+  tracks the two computed checks. One semantic side effect, stated for the record: the QC
+  log's per-book fail rate (which drives the `purge_recommended` suggestion at >30%) no
+  longer includes contamination fails, so books' fail rates will read lower than under ≤0.7.0
+  — the two counts are not comparable across the boundary.
+
+  **Verified** on a rebuilt set of 48 specs across 12 books (fig_id + page harvested from the
+  converted corpus's REF markers), run twice with the model reachable and once with it
+  unreachable: 0/48 differences in `status` or output sha256 between any pair of runs —
+  23 passes and 25 deterministic refusals, identical every time. The verdict depends on
+  nothing but the PDF, and turning the model off does not change a single crop.
+
+### Added
+- **The remaining legacy vision calls are pinned to greedy decoding** — `temperature 0`,
+  `top_k 1`, fixed `seed` (`_vision_options()`; the seed is overridable with
+  `T2N_OLLAMA_SEED`). They previously sent `temperature 0.1` with no seed. This matters only
+  for the `--no-strict` ladder's bbox suggestion, which feeds a crop attempt; it keeps that
+  proposal from drifting between runs.
+- **Five contract tests**, all hermetic — the transport is stubbed, so CI needs no model and
+  no GPU: `run_local_qc` never calls a vision helper (a helper that raises on call proves
+  it), the reasons list carries exactly the two computed checks, a computed check still
+  blocks, a skipped computed check still degrades the gate, and the legacy vision helpers
+  send greedy decoding options when invoked directly.
+
+### Fixed
+- **Documentation that claimed a determinism the code did not have.** The README described
+  "whitespace-fill, text-bleed, and OCR-long-line checks" as running "before any AI is allowed
+  to judge the crop" — the third of those *was* the AI. Corrected in `README.md`,
+  `README.zh-TW.md`, `docs/architecture.md`, `skills/figure-remap/SKILL.md`,
+  `figures/CALIBRATION.md`, and the module and function docstrings, which now say plainly
+  that the QC chain is two computed checks and no model. Also corrected: the READMEs listed
+  ollama as a figure-QC requirement (it no longer is), and `skills/figure-remap/SKILL.md`
+  described `visual_check.py` as "used inside the gate" (it never was — only the legacy
+  whole-book batch tools call it; both scripts are now marked legacy, superseded by the
+  workflow's per-crop frontier classification).
+
 ## [0.7.0] — 2026-08-19 — A crop that passes QC still has to be a figure
 
 ### Added

@@ -91,7 +91,7 @@ See [`workflows/note-writing.md`](workflows/note-writing.md).
 
 ### 5 · Extract figures — the hard one
 
-Every book lays figures out differently, so there's no single crop rule. We use a **general geometric-matching method** (a caption owns the nearest assignable raster) behind a **deterministic QC gate**: whitespace-fill, text-bleed, and OCR-long-line checks all run *before* any AI is allowed to judge the crop — and the gate hard-fails rather than guessing, so a wrong page yields a refusal, not a wrong figure. Everything runs locally, token-frugally.
+Every book lays figures out differently, so there's no single crop rule. We use a **general geometric-matching method** (a caption owns the nearest assignable raster) behind a **deterministic QC gate**: two checks — whitespace-fill and text-bleed — both pure computation, so the same crop always gets the same verdict. No model participates in QC: a check that asks a model gave the same crop a pass on one run and a fail on the next (issue #16), so model-backed checks were removed from the chain outright, and the extraction path needs no local vision model at all. The gate hard-fails rather than guessing, so a wrong page yields a refusal, not a wrong figure. Whether a QC-passed crop is *worth embedding* is a separate judgment, made by a frontier-tier model that reads every crop before any embed (see the workflow's classification step).
 
 A crop that passes the gate then meets a second, separate question: *is this a figure at all?* A **deterministic junk pre-gate** (`figures/pregate.py`) kills chapter-title banners and blank crops on page metadata alone — no model, no per-book tuning — and tells the caller to skip that figure rather than retry it. Its calibration requirement is zero false kills on good figures, because a killed figure has no second chance; measured 0 on both of its evaluation sets.
 
@@ -129,7 +129,7 @@ shared/       env-driven configuration (config.py)
 
 - Python 3.10+, `pip install -r requirements.txt`
 - **CPU-only is a first-class path** for born-digital PDFs (the common case) — no GPU needed
-- Optional, for scanned books and figure QC: an NVIDIA GPU or Apple Silicon + [Surya OCR](https://github.com/VikParuchuri/surya), [ollama](https://ollama.com) with a small vision model and `bge-m3` for embeddings — all local, nothing leaves your machine. See the hardware-tier table in [`docs/ocr-ladder.md`](docs/ocr-ladder.md).
+- Optional, for scanned books (OCR ladder) and semantic search: an NVIDIA GPU or Apple Silicon + [Surya OCR](https://github.com/VikParuchuri/surya), [ollama](https://ollama.com) with a small vision model and `bge-m3` for embeddings — all local, nothing leaves your machine. Figure extraction and its QC gate need none of this (pure computation since 0.7.1). See the hardware-tier table in [`docs/ocr-ladder.md`](docs/ocr-ladder.md).
 - Tested on Windows 11 and macOS; Windows-specific gotchas are handled in code (cp950 subprocess decoding, atomic-ish path ops)
 
 ## Bring your own books

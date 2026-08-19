@@ -1,4 +1,6 @@
-"""visual_check_batch.py — run visual_check.sample_check across N books.
+"""LEGACY — run visual_check.sample_check across N books (batch tooling only;
+the note-writing workflow classifies every crop with a frontier-tier model
+instead).
 
 For each book, picks a few figures (single + multipart + late chapter) and
 asks a local vision model (default minicpm-v:8b) to describe them. Modality /

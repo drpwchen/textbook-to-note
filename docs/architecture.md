@@ -172,8 +172,12 @@ single entrypoint that:
    final fallback
 
 Every candidate crop is checked by cheap deterministic rules (whitespace
-fill, text bleed-in, panel completeness) before being accepted — never
-trusted on the vision model's say-so alone. See
+fill, text bleed-in) before being accepted — never trusted on the vision
+model's say-so alone. In fact no vision model runs in the QC chain at all:
+a model-backed check gave the same crop different verdicts on repeat runs
+(issue #16), which is not something a gate — or a per-crop log signal — can
+be built on. Crop-worthiness is judged downstream by a frontier-tier
+classification pass over every crop. See
 `skills/figure-remap/SKILL.md` for the full QC-gate and result contract.
 
 ## Why this order (fitz → deterministic match → local vision → frontier vision)

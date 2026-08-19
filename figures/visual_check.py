@@ -1,4 +1,9 @@
-"""Visual sanity check via local ollama (minicpm-v:8b). 0 Claude tokens.
+"""LEGACY — visual sanity check via local ollama (minicpm-v:8b). 0 Claude tokens.
+
+Only the legacy whole-book batch tools (batch_remap.py, visual_check_batch.py)
+use this. The note-writing workflow does not: every crop is read and classified
+by a frontier-tier model before embedding (workflows/note-writing.md,
+"classify every crop"), which supersedes this sampling check.
 
 For a sample of N figures from a freshly-extracted book, ask minicpm-v to
 describe the image, then compare loosely against the caption text. If the

@@ -255,6 +255,101 @@ finally:
     fr._impl.gate, fr._impl.log_qc, fr._pregate_kill = _orig_gate, _orig_log, _orig_kill
     OUT.unlink(missing_ok=True)
 
+# ─── the QC chain is model-free (issue #16) ───
+# A model-backed check gave the same crop different verdicts on repeat runs,
+# so run_local_qc must neither gate on a vision call nor make one at all.
+# Hermetic — every check is stubbed, no model and no PDF needed.
+import figure_qc_gate as _qg  # noqa: E402
+
+_o = (_qg.qc_whitespace_borders, _qg.qc_text_bleed,
+      _qg.qc_text_contamination, _qg.qc_caption_match)
+
+
+def _boom(name):
+    def _f(*a, **k):
+        raise AssertionError(f"run_local_qc called the vision helper {name}")
+    return _f
+
+
+try:
+    _qg.qc_whitespace_borders = lambda img: (True, "fill=0.99")
+    _qg.qc_text_bleed = lambda pdf, page, bbox: (True, "prose_chars=0 label_chars=0")
+    _qg.qc_text_contamination = _boom("qc_text_contamination")
+    _qg.qc_caption_match = _boom("qc_caption_match")
+    ok, reasons = _qg.run_local_qc(Path("nonexistent.png"), "Figure 1.1 x",
+                                   "x.pdf", 0, (0, 0, 10, 10))
+    check("run_local_qc never calls a vision helper, even with a caption",
+          ok is True, f"got ok={ok} reasons={reasons}")
+    check("the reasons list carries exactly the two computed checks",
+          [r.split(":", 1)[0] for r in reasons] == ["whitespace", "text_bleed"],
+          f"got {reasons}")
+
+    _qg.qc_text_bleed = lambda pdf, page, bbox: (False, "text_bleed prose_chars=99>=50")
+    ok2, reasons2 = _qg.run_local_qc(Path("nonexistent.png"), "Figure 1.1 x",
+                                     "x.pdf", 0, (0, 0, 10, 10))
+    check("a computed check still blocks", ok2 is False, f"got ok={ok2}")
+finally:
+    (_qg.qc_whitespace_borders, _qg.qc_text_bleed,
+     _qg.qc_text_contamination, _qg.qc_caption_match) = _o
+
+check("a clean two-check pass is not a degraded gate",
+      _qg.qc_degradation(["whitespace:fill=0.99",
+                          "text_bleed:prose_chars=0"]) == (False, []))
+check("a skipped computed check still degrades the gate",
+      _qg.qc_degradation(["whitespace:skip:pillow_or_numpy_missing"]) == (True, ["whitespace"]))
+
+# ─── legacy vision helpers keep greedy decoding (issue #16) ───
+# The non-strict fallback ladder may still call these helpers (the strict
+# default never does); when they run, they must ask for greedy, seeded
+# decoding so a bbox suggestion does not drift between runs. Hermetic —
+# the transport is stubbed, so no model and no GPU are needed.
+import figure_qc_gate as _g  # noqa: E402
+
+_sent: list[dict] = []
+_g_alive, _g_post = _g._ollama_alive, _g._ollama_post
+try:
+    _g._ollama_alive = lambda timeout=2: True
+    def _capture(path, payload, timeout=300):
+        _sent.append(payload)
+        return {"response": ""}
+    _g._ollama_post = _capture
+
+    probe_img = HERE / "_test_vision_probe.png"
+    made_img = False
+    try:
+        from PIL import Image
+        Image.new("RGB", (40, 40), "white").save(probe_img)
+        made_img = True
+    except Exception as e:
+        skip("vision decoding pinned to greedy", f"pillow unavailable: {e}")
+
+    if made_img:
+        _g.qc_text_contamination(probe_img)
+        _g.qc_caption_match(probe_img, "Figure 1.1 A caption")
+        probe_pdf = HERE / "_test_vision_probe.pdf"
+        try:
+            import fitz
+            d = fitz.open()
+            d.new_page()
+            d.save(str(probe_pdf))
+            d.close()
+            _g.ollama_suggest_bbox(str(probe_pdf), 0, "Figure 1.1 A caption")
+        except Exception:
+            pass
+        finally:
+            probe_pdf.unlink(missing_ok=True)
+        probe_img.unlink(missing_ok=True)
+
+        opts = [pl.get("options", {}) for pl in _sent]
+        check("every vision call sends decoding options",
+              len(opts) >= 2 and all(opts), f"{len(opts)} calls, options={opts}")
+        check("vision decoding pinned to greedy (temperature 0, top_k 1, fixed seed)",
+              all(o.get("temperature") == 0 and o.get("top_k") == 1
+                  and isinstance(o.get("seed"), int) for o in opts),
+              f"got {opts}")
+finally:
+    _g._ollama_alive, _g._ollama_post = _g_alive, _g_post
+
 # ─── report ───
 fails = [r for r in results if r[1] == "FAIL"]
 for name, status, detail in results:

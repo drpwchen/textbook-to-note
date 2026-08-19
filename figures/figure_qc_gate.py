@@ -9,16 +9,20 @@ Extraction (gate, in order; first success wins):
   4. escalate              — {escalate:true} so the caller can fall back to a
                               frontier-model vision read.
 
-QC chain on each candidate (deterministic = blocking, VLM = advisory):
-  1. whitespace_borders  — content fills >=80% of frame (blocks)
-  2. text_bleed (fitz)   — body-text chars overlapping bbox < threshold (blocks)
-  3. text_contamination  — local-vision-model OCR long-line count <= 7 (blocks)
-  4. caption_match       — local vision model yes/no, ADVISORY only (logged,
-                           never blocks; the VLM is too noisy to gate on)
+QC chain on each candidate — two checks, both pure computation, both block:
+  1. whitespace_borders  — content fills >=80% of frame
+  2. text_bleed (fitz)   — body-text chars overlapping bbox < threshold
+No model participates in the QC chain (issue #16: a model-backed check gave
+the same crop different verdicts on repeat runs, so nothing a model says can
+gate — and a number that changes between runs is not worth logging per crop
+either). The local-vision helpers kept in this file (qc_text_contamination,
+qc_caption_match, ollama_suggest_bbox) are LEGACY: only the non-strict
+fallback ladder reaches them; the strict default never calls ollama at all.
+Crop-level judgment lives in the workflow's frontier-model classification
+step (workflows/note-writing.md, "classify every crop"), not here.
 
 Modes:
   --check <img>                              run local QC only (no PDF context)
-  --check <img> --caption "<text>"           local QC + vision-model caption match
   --gate <book> --page N --caption "..." \\   full gate: QC existing | extract whole page |
         --fig-id X --out <path>               vision-guided retry x2 | escalate flag
         [--existing <path>] [--pdf <path>]
@@ -77,6 +81,21 @@ MODEL = os.environ.get("T2N_OLLAMA_VISION_MODEL", "minicpm-v:8b")  # vision mode
 
 QC_LOG_PATH = Path(os.environ.get("T2N_QC_LOG_PATH", str(OUTPUT_DIR / "figure_qc_log.json")))
 
+# Vision-call decoding is pinned to greedy (temperature 0 + top_k 1 + fixed
+# seed). Measured on 25 crops x 5 runs, sampling alone made the OCR long-line
+# count differ between runs on 16 of 24 cleanly measured crops; the pin removes
+# that, but 10 of 25 crops still shifted on the FIRST call against a crop — the
+# only call an extraction ever makes — which is why no vision call gates, or
+# runs, in the QC chain any more (issue #16). The pin stays for the legacy
+# non-strict ladder's bbox suggestion, which does feed a crop attempt.
+VISION_SEED = int(os.environ.get("T2N_OLLAMA_SEED", "0"))
+
+
+def _vision_options(num_predict: int) -> dict:
+    """Decoding options for every vision call in this file (greedy, seeded)."""
+    return {"num_predict": num_predict, "temperature": 0,
+            "top_k": 1, "top_p": 1.0, "seed": VISION_SEED}
+
 # ─── Tunable thresholds ───────────────────────────────────────────────────────
 WHITESPACE_FILL_MIN = float(os.environ.get("T2N_QC_WHITESPACE_MIN", "0.80"))  # content bbox / image bbox must be ≥ this
 TEXT_BLEED_CHAR_MAX = 50         # fitz PROSE-chars-in-region threshold. Recalibrated
@@ -86,7 +105,7 @@ TEXT_BLEED_CHAR_MAX = 50         # fitz PROSE-chars-in-region threshold. Recalib
                                  # clipped caption/body sentence. (labels wrap to short
                                  # lines, so they rarely misclassify as prose.)
 LONG_LINE_CHARS = 30
-LONG_LINE_COUNT_MAX = 7          # OCR long-line count <= this
+LONG_LINE_COUNT_MAX = 7          # OCR long-line count <= this (legacy diagnostic only)
 PURGE_FAIL_RATE = 0.30           # fail rate > this AND
 PURGE_CHECKED_MIN = 20           # checked >= this → suggest purge
 RETRY_LIMIT = 2                  # vision-guided crop retries before escalation
@@ -176,14 +195,16 @@ def qc_text_bleed(pdf_path: str | None, page_idx: int | None,
 
 
 def qc_text_contamination(img_path: Path) -> tuple[bool, str]:
-    """Local vision-model OCR — reject if many long body-text lines present.
+    """LEGACY (0.7.1) — count long body-text lines in the crop via local OCR.
 
-    Tesseract is deliberately avoided for CJK OCR (unreliable diacritics/spacing).
-    This check runs small figure crops (not full pages), so a venv-based OCR
-    engine would pay model-load cost on every call; the local vision model is
-    already running for the other checks in this file (qc_caption_match,
-    ollama_suggest_bbox), so it is reused here via a plain transcription prompt.
-    Same blocking logic as before: count transcribed lines >= LONG_LINE_CHARS.
+    No longer called by run_local_qc: the count is not reproducible between
+    runs of the same crop, so it can neither gate nor serve as a per-crop log
+    signal (issue #16). Kept only as an opt-in diagnostic for callers outside
+    the QC chain; the returned bool says whether the count is over
+    LONG_LINE_COUNT_MAX — never gate on it.
+
+    Tesseract is deliberately avoided for CJK OCR (unreliable diacritics/spacing);
+    the local vision model is reused via a plain transcription prompt.
     """
     if not _ollama_alive():
         return (True, "skip:ollama_unreachable")
@@ -210,7 +231,7 @@ def qc_text_contamination(img_path: Path) -> tuple[bool, str]:
             "prompt": prompt,
             "images": [img_b64],
             "stream": False,
-            "options": {"num_predict": 1500, "temperature": 0.1},
+            "options": _vision_options(1500),
         })
         text = (resp.get("response") or "").strip()
         long_lines = sum(1 for ln in text.splitlines()
@@ -264,9 +285,12 @@ def _img_b64_rgb(path) -> str:
 
 
 def qc_caption_match(img_path: Path, caption: str) -> tuple[bool, str]:
-    """Strict yes/no — does the image content match the caption?
+    """LEGACY (0.7.1) — yes/no: does the image content match the caption?
 
-    Uses /api/generate (the vision model may return HTTP 500 on /api/chat with images).
+    No longer called by run_local_qc (issue #16 — the local vision model's
+    judgment is not reproducible enough to be worth a per-crop call). Kept as
+    an opt-in diagnostic only. Uses /api/generate (the vision model may return
+    HTTP 500 on /api/chat with images).
     """
     if not caption:
         return (True, "skip:no_caption")
@@ -287,7 +311,7 @@ def qc_caption_match(img_path: Path, caption: str) -> tuple[bool, str]:
             "prompt": prompt,
             "images": [img_b64],
             "stream": False,
-            "options": {"num_predict": 1200, "temperature": 0.1},
+            "options": _vision_options(1200),
         })
         out = (resp.get("response") or "").strip()
         first = out.split(":", 1)[0].strip().upper()
@@ -301,10 +325,13 @@ def qc_caption_match(img_path: Path, caption: str) -> tuple[bool, str]:
 
 
 def ollama_suggest_bbox(pdf_path: str, page_idx: int, caption: str) -> tuple | None:
-    """Render whole page → ask the local vision model for bbox of the matching
-    figure as a fraction of the page.
+    """LEGACY — render whole page → ask the local vision model for a bbox of
+    the matching figure as a fraction of the page.
 
-    Returns (x0, y0, x1, y1) in PDF coordinates, or None.
+    Only the non-strict fallback ladder calls this (strict mode, the default,
+    never does). Its suggestion is a proposal only — any crop it produces must
+    still pass the computed QC checks. Returns (x0, y0, x1, y1) in PDF
+    coordinates, or None.
     """
     if not _ollama_alive():
         return None
@@ -331,7 +358,7 @@ def ollama_suggest_bbox(pdf_path: str, page_idx: int, caption: str) -> tuple | N
             "prompt": prompt,
             "images": [img_b64],
             "stream": False,
-            "options": {"num_predict": 1500, "temperature": 0.1},
+            "options": _vision_options(1500),
         })
         out = (resp.get("response") or "").strip()
         m = re.search(r"\{[^{}]*\}", out)
@@ -713,10 +740,10 @@ def log_qc(book: str, passed: bool, reasons: list[str],
 # ─── Orchestrator ─────────────────────────────────────────────────────────────
 
 # Checks whose "skip" means the QC verdict is not a real verdict — the check's
-# dependency was unavailable (PIL/numpy missing, no PDF context, ollama
-# unreachable) and it defaulted to pass. caption-advisory is excluded: it never
-# gates, and "no_caption" is a normal (not degraded) state.
-_DEGRADE_CHECKS = {"whitespace", "text_bleed", "contamination"}
+# dependency was unavailable (PIL/numpy missing, no PDF context) and it
+# defaulted to pass. Exactly the two checks the QC chain runs; nothing else
+# can weaken the gate by not running.
+_DEGRADE_CHECKS = {"whitespace", "text_bleed"}
 
 
 def qc_degradation(reasons: list[str]) -> tuple[bool, list[str]]:
@@ -740,12 +767,26 @@ def run_local_qc(img_path: Path, caption: str | None,
                  bbox: tuple | None = None) -> tuple[bool, list[str]]:
     """Run full QC chain. Returns (pass, reasons-list).
 
-    The deterministic checks (whitespace / text_bleed / contamination) are the
-    real gate. The crop-only caption match (qc_caption_match) runs last as an
-    ADVISORY signal only — it never blocks, because the local vision model's
-    caption judgment is too noisy to gate on (false-accepts AND false-rejects).
+    Two checks run, both BLOCK, and both are pure computation: whitespace fill
+    and fitz text bleed. No model is called (issue #16). The OCR long-line
+    count used to block here — but the count is not reproducible between runs
+    of the same crop, so the same crop passed on one run and failed on the
+    next; greedy decoding did not fix it (only the FIRST call on a crop
+    drifts, computed against whatever the previous image left in the server's
+    cache, and that first call is the only one an extraction ever makes). A
+    check like that cannot gate, and a per-crop number that changes between
+    runs is not worth 2 s of GPU to log either, so it was removed outright.
+
+    Removing it costs nothing on the path that matters: qc_text_bleed reads
+    the PDF's own text layer and catches the same failure mode (a crop that
+    swallowed a sentence) with better evidence; the scanned backend never
+    calls this chain at all (figure_scanned.py runs its own whitespace-only
+    QC); and whether a crop is *worth embedding* is judged downstream by the
+    workflow's frontier-model classification step, which reads every crop.
+
     Correctness is secured upstream by geometric_match_bbox producing the right
-    crop.
+    crop. `caption` is kept in the signature for callers; it no longer
+    triggers any check here.
     """
     reasons = []
     ok, msg = qc_whitespace_borders(img_path)
@@ -756,17 +797,6 @@ def run_local_qc(img_path: Path, caption: str | None,
     reasons.append(f"text_bleed:{msg}")
     if not ok:
         return (False, reasons)
-    ok, msg = qc_text_contamination(img_path)
-    reasons.append(f"contamination:{msg}")
-    if not ok:
-        return (False, reasons)
-    # Advisory VLM caption sanity check (logged, non-blocking). The local
-    # vision model's judgment is too noisy to gate on — the deterministic
-    # checks above are the real gate; the crop is made correct upstream by
-    # geometric_match_bbox.
-    if caption:
-        _, cmsg = qc_caption_match(img_path, caption)
-        reasons.append(f"caption-advisory:{cmsg}")
     return (True, reasons)
 
 
