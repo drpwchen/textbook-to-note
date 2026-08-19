@@ -8,6 +8,34 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [Unreleased] — the behaviour contract moves into the repo
+
+### Added
+- **`openspec/` — the tool's behaviour contract, written down.** Four domain specs
+  (`conversion`, `table-extraction`, `figure-extraction`, `note-workflow`) state what this
+  tool does as testable requirements: each scenario's THEN is something a program or a
+  person can observe, every threshold carries its number, and every requirement states what
+  must *not* happen. They were extracted from this repo's own `README.md`, `AGENTS.md`,
+  `docs/`, `CHANGELOG.md`, and the constants in `converter/convert.py` and `figures/*.py`,
+  and describe behaviour that shipped as of 0.7.1 — **no behaviour changed in this entry**.
+
+  The reason to have them: the rules this project keeps re-deriving in prose — *never tune a
+  QC threshold to make a failing case pass*, *a default-ON behaviour needs a corpus
+  measurement*, *the gate refuses rather than guesses*, *misbinding is flagged, never
+  auto-repaired* — are now in one place a reviewer can check a change against, instead of
+  being scattered across changelog entries nobody re-reads.
+
+- **`.claude/hooks/spec-sync-guard.py`** — a `PreToolUse` hook that blocks a `git commit`
+  staging `converter/`, `figures/`, `citations/`, `shared/`, `skills/`, `workflows/`, or
+  `templates/` while staging nothing under `openspec/` and no `CHANGELOG.md` entry.
+  Test-only changesets are exempt; `[no-spec]` in the commit message bypasses it. Written in
+  Python rather than the usual bash+`jq` so it runs unchanged on Windows, and it fails open
+  on any unexpected condition — a guard that blocks commits for its own reasons is worse
+  than no guard.
+
+- **`CLAUDE.md`** — routes the repo's two AI audiences apart: an agent *deploying* this tool
+  for a user reads `AGENTS.md`; an agent *changing this repo* reads `openspec/README.md`.
+
 ## [0.7.1] — 2026-08-19 — A check that asks a model cannot be the one that blocks
 
 ### Changed
