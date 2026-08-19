@@ -93,6 +93,8 @@ See [`workflows/note-writing.md`](workflows/note-writing.md).
 
 Every book lays figures out differently, so there's no single crop rule. We use a **general geometric-matching method** (a caption owns the nearest assignable raster) behind a **deterministic QC gate**: whitespace-fill, text-bleed, and OCR-long-line checks all run *before* any AI is allowed to judge the crop — and the gate hard-fails rather than guessing, so a wrong page yields a refusal, not a wrong figure. Everything runs locally, token-frugally.
 
+A crop that passes the gate then meets a second, separate question: *is this a figure at all?* A **deterministic junk pre-gate** (`figures/pregate.py`) kills chapter-title banners and blank crops on page metadata alone — no model, no per-book tuning — and tells the caller to skip that figure rather than retry it. Its calibration requirement is zero false kills on good figures, because a killed figure has no second chance; measured 0 on both of its evaluation sets.
+
 When a specific book extracts wrong, you fix *that book's* logic once, and every later extraction from it is correct. This stage has been through many iterations and is still **experimental** — it doesn't yet handle every book, and improvement PRs are very welcome. See [`figures/CALIBRATION.md`](figures/CALIBRATION.md).
 
 ### Bonus · Pluggable evidence enrichment
@@ -114,7 +116,7 @@ You're probably here to have *your* AI set this up — that's the intended path:
 
 ```
 converter/    PDF/EPUB → markdown (convert.py — silent-failure + column-sort + table-gate)
-figures/      figure extraction + deterministic QC gate (figure_remap.py entrypoint)
+figures/      figure extraction + deterministic QC gate + junk pre-gate (figure_remap.py entrypoint)
 citations/    chapter-reference lint — proves every "Author Ch.N" points at a real chapter
 skills/       drop-in Claude Code skill definitions (textbook-to-md, figure-remap)
 workflows/    the note-writing algorithm (adapt to your own note system)

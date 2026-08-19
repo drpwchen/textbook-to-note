@@ -119,6 +119,64 @@ loosening the gate. Only change the env value when you've calibrated it
 against a whole book's figure set and confirmed the looser threshold doesn't
 let genuine failures through.
 
+## The junk pre-gate (`pregate.py`) — do not calibrate it per book
+
+`figure_qc_gate` asks *"is this crop the figure the caption names?"* — a
+correctness question, where a wrong answer puts a wrong figure in a note.
+`pregate.py` asks a second, different question on a crop that already passed:
+*"is this a figure at all?"* Chapter-title banners are the case that motivates
+it: a full-width strip at the top of a chapter's first page has a caption-like
+line above real figure geometry, crops cleanly, and passes every QC check —
+because nothing in QC is looking for "this is typography, not a figure".
+
+Two rules, both deterministic metadata (no model, no pixels beyond a std):
+
+| Rule | Fires when | Effect |
+|---|---|---|
+| `blank` | crop pixel std < 3.0 | kill |
+| `banner` | crop starts at the very top (`fy0` ≤ 0.02), ends in the upper third (`fy1` ≤ 0.36), spans ≥ 0.95 of page width, and has < 40 vector paths | kill |
+
+A kill returns `status:fail`, `hard_fail:false`, `reason:"pregate=…"`. The
+caller **skips that fig_id** — no retry, no page fix, no TODO. It is fail-open:
+any exception inside the pre-gate means no kill, so it can never become a new
+source of missing figures through its own bugs.
+
+Measured on an internal figure-classification evaluation (2026-08-19),
+thresholds fitted on a dev set of n=301 crops with frozen reference labels and
+then measured unchanged on a later held-out set of n=244:
+
+- **0** kills on crops whose reference label was embed or callout — on both
+  sets. This is the hard requirement: a killed good figure has no downstream
+  rescue, so a false kill is strictly worse than a passed banner.
+- banner recall **42/45** (dev) and **50/50** (held-out).
+- the threshold of 40 vector paths sits in an empty band: killed text banners
+  had ≤ 18 (dev) and ≤ 19 (held-out), while the embed/callout figures with the
+  same top-of-page geometry had ≥ 72.
+- known cost: a damaged figure sitting under a full-width chapter banner is
+  killed too (6 per set). Those fig_ids go un-embedded — the accepted trade for
+  the zero-false-kill requirement.
+
+**A table rule was tried and rejected.** fitz `find_tables` fires on flowcharts
+and designed figures; on the held-out set every threshold combination killed
+crops labelled embed/callout, three of them flowcharts, and no metadata feature
+separated those from real tables. Raster-image tables are invisible to
+`find_tables` anyway (`image_cover` 1.0, table cover 0.0), so a rule tuned for
+them cannot see the case it exists for. Tables remain a downstream
+classification job — measured on the same held-out set, that downstream
+classifier let **1 junk crop of 100** through, and the single table it missed
+was exactly such a raster-image table. Do not resurrect the table rule without
+a new separating feature calibrated on dev.
+
+**Unlike everything else in this document, these thresholds are not per-book
+knobs.** Do not loosen or tighten them to make one book behave, and do not
+refit them on the set you then quote numbers from — that turns a measurement
+into a claim. Recalibrate on dev, then measure once.
+
+Scope: the pre-gate needs the winning crop's bbox, which only the born-digital
+geometric path provides. The scanned `caption_anchor` backend and the
+`existing` fast path return no bbox, so the pre-gate abstains there and those
+crops reach the caller unfiltered.
+
 ## The calibration output is a list to copy from, not a rule to apply
 
 Everything above produces *exact-match strings*: a book id, a fig_id, a caption.

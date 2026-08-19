@@ -8,6 +8,49 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [0.7.0] — 2026-08-19 — A crop that passes QC still has to be a figure
+
+### Added
+- **A deterministic junk pre-gate on extracted crops** (`figures/pregate.py`, ported from the
+  private deployment of this pipeline). The QC gate answers *"is this crop the figure the caption
+  names?"* — a correctness question, where a wrong answer puts a wrong figure in a note. It has no
+  opinion on a second question: *"is this a figure at all?"* A full-width chapter-title banner at
+  the top of a chapter's first page has caption-like text above figure-like geometry, crops
+  cleanly, and passes every QC check, because nothing in QC is looking for "this is typography".
+
+  Two rules, both on page metadata fitz already has at crop time — no model, no pixels beyond a
+  standard deviation, no per-book tuning: `blank` (crop pixel std < 3.0) and `banner` (crop starts
+  at the top of the page, ends in its upper third, spans ≥ 95% of page width, and contains fewer
+  than 40 vector paths). A kill returns `status:fail` with `hard_fail:false` and a
+  `reason:"pregate=…"` — a **skip**, not a miss: the caller drops that fig_id instead of retrying,
+  because a retry only re-crops the same banner.
+
+  **Measured**, thresholds fitted on a dev set of n=301 crops with frozen reference labels and then
+  measured unchanged on a later held-out set of n=244: zero kills on crops labelled embed or
+  callout on **both** sets (the hard requirement — a killed good figure has no downstream rescue);
+  banner recall **42/45** on dev and **50/50** on held-out; killed banners carried ≤ 19 vector paths
+  while good figures with the same top-of-page geometry carried ≥ 72, so the threshold of 40 sits in
+  an empty band. Known cost, reported rather than hidden: a damaged figure lying under a full-width
+  banner is killed too — 6 such crops per set go un-embedded, which is the price of the
+  zero-false-kill requirement.
+
+  A third rule keyed on table detection was **tried and rejected**: fitz `find_tables` fires on
+  flowcharts and designed figures, and on the held-out set every threshold combination killed
+  crops labelled embed/callout, three of them flowcharts. `figures/CALIBRATION.md` records why,
+  so the next person does not re-derive it.
+
+  **Scope and safety**: the pre-gate needs the winning crop's bbox, so it runs on the born-digital
+  geometric path and abstains on the scanned `caption_anchor` backend and the `existing` fast path.
+  It is fail-open — any exception inside it means no kill — so it can never become a new source of
+  missing figures through its own bugs. Unlike the QC thresholds, its numbers are **not per-book
+  knobs**: `pregate.py` and `CALIBRATION.md` both say not to refit them on the set you then quote,
+  which is what turns a measurement into a claim.
+
+- **13 contract regression checks for the pre-gate** in `figures/test_contract.py` — rule verdicts,
+  fail-open behavior on missing pdf/page/bbox and on an unreadable PDF, and the kill-path contract
+  shape (fail + `hard_fail:false` + skip-not-retry reason + crop removed). All are pure-unit, so
+  they run in CI without a fixture PDF.
+
 ## [0.6.3] — 2026-08-16 — The GPU rungs can take a machine-wide lease
 
 ### Added

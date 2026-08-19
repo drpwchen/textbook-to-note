@@ -40,6 +40,11 @@ contract, so callers cannot grow a dependency on the fallback ladder's existence
     fail     → deterministic miss (strict hard_fail). NOT a wrong figure — a
                correct refusal. Caller fixes --page, escalates to vision,
                or leaves a TODO.
+             → EXCEPT when reason starts with "pregate=": the crop extracted
+               and passed QC fine, but the metadata pre-gate (pregate.py)
+               identified it as a non-figure (chapter-banner geometry / blank
+               crop). SKIP this fig_id — do not retry, do not fix --page, do
+               not leave a retry TODO. hard_fail is False for this case.
     escalate → only reachable in non-strict mode; gate exhausted its ladder and
                wants a frontier-model vision read (Read page → re-call with a bbox).
 
@@ -141,6 +146,31 @@ def _validate(c: dict) -> dict:
     return c
 
 
+def _pregate_kill(pdf: str | None, page_idx: int | None, raw: dict) -> str | None:
+    """Run the metadata pre-gate on a gate-passing crop. Returns the kill reason
+    ("banner" / "blank") or None. Needs the winning attempt's bbox; without pdf,
+    page, or bbox (existing-file fast path, scanned caption_anchor backend,
+    mocked gate) it abstains. Fail-open
+    by design: pregate is a junk filter, never a correctness gate — an exception
+    here must never block an otherwise QC-passed extraction."""
+    try:
+        if pdf is None or page_idx is None:
+            return None
+        bbox = None
+        for a in reversed(raw.get("attempts", [])):
+            if a.get("pass") and a.get("bbox"):
+                bbox = a["bbox"]
+                break
+        if bbox is None:
+            return None
+        from pregate import compute_features, verdict
+        feat = compute_features(pdf, page_idx, bbox, raw.get("file"))
+        action, reason = verdict(feat)
+        return reason if action == "kill" else None
+    except Exception:
+        return None
+
+
 def extract(book: str, fig_id: str, caption: str, out: str | Path,
             pdf: str | None = None, page: int | None = None,
             existing: str | Path | None = None,
@@ -233,6 +263,7 @@ def extract(book: str, fig_id: str, caption: str, out: str | Path,
     # to risk grabbing the wrong figure. Skip `existing` for neighbors — the
     # fast-path image is tied to the original page assertion.
     neighbor_tries: list[tuple[int, str]] = []
+    matched_page_idx = page_idx  # page the winning gate run actually used
     if (strict and page_idx is not None and pdf is not None
             and not raw.get("pass") and raw.get("hard_fail")):
         for delta in (-1, 1):
@@ -247,6 +278,7 @@ def extract(book: str, fig_id: str, caption: str, out: str | Path,
             neighbor_tries.append((np_idx + 1, "pass" if alt.get("pass") else "fail"))
             if alt.get("pass"):
                 raw = alt
+                matched_page_idx = np_idx
                 break
         if not raw.get("pass") and neighbor_tries:
             base = raw.get("reason") or "strict deterministic miss"
@@ -256,6 +288,26 @@ def extract(book: str, fig_id: str, caption: str, out: str | Path,
     qc_degraded = bool(raw.get("qc_degraded", False))
     qc_skipped = list(raw.get("qc_skipped", []))
     if raw.get("pass"):
+        # Metadata pre-gate (pregate.py): deterministic kill of chapter-banner
+        # geometry and blank crops before anything downstream sees the crop.
+        # Calibrated with zero embed/callout false kills (see pregate.py);
+        # fail-open, so it can never turn into a new source of missing figures
+        # through its own errors.
+        kill = _pregate_kill(pdf, matched_page_idx, raw)
+        if kill:
+            try:  # the crop is a regenerable build artifact — direct delete ok
+                Path(raw["file"]).unlink()
+            except Exception:
+                pass
+            _impl.log_qc(book, False, [f"PREGATE_KILL:{kill}"], method="pregate")
+            contract = {"status": "fail", "match_quality": "failed",
+                        "hard_fail": False, "file": None, "fig_id": fig_norm,
+                        "reason": (f"pregate={kill}: crop is not an embeddable "
+                                   f"figure — skip this fig_id, do not retry"),
+                        "qc_degraded": qc_degraded, "qc_skipped": qc_skipped}
+            if policy_reason:
+                contract["reason"] += f"; policy={policy_reason}"
+            return _validate(contract)
         # exact = any deterministic backend (geometric_match OR caption_anchor,
         # both produce ambiguity-safe crops from a deterministic anchor).
         # Anything else is a heuristic fallback crop (only reachable with

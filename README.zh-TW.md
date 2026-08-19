@@ -85,6 +85,8 @@ PyMuPDF 文字抽取，每頁約 130 毫秒。三個不那麼直覺的設計：
 
 每本書的圖片排版邏輯都不同，沒有單一裁切規則。我們用**通用的幾何比對方法**（圖說認領最近的可指派圖像），後面接一道**決定論 QC 閘門**：留白填充、文字滲入、OCR 長行檢查，全部在任何 AI 判斷之前先跑，而且閘門**寧可 hard-fail 也不亂猜**，所以指錯頁碼會得到拒絕而不是錯圖。全程在本機、省 token 執行。
 
+通過閘門的裁切圖還要面對第二個、性質不同的問題：*這到底是不是一張圖？* **決定論式的雜訊前置閘**（`figures/pregate.py`）只憑頁面 metadata 就殺掉章名橫幅與空白裁切——不用模型、不做逐書調參——並告訴呼叫端跳過這個 fig_id，而不是重試。它的校正要求是好圖零誤殺，因為被殺掉的圖沒有第二次機會；兩個評測集上實測皆為 0。
+
 當某本書抽錯時，你修正**那本書**的邏輯一次，之後從它抽的每張圖都正確。這一關迭代過很多版，目前仍屬**實驗性質**，還無法涵蓋所有書，非常歡迎改良 PR。詳見 [`figures/CALIBRATION.md`](figures/CALIBRATION.md)。
 
 ### Bonus · 可插拔的證據補充
@@ -106,7 +108,7 @@ PyMuPDF 文字抽取，每頁約 130 毫秒。三個不那麼直覺的設計：
 
 ```
 converter/    PDF/EPUB → markdown（convert.py — 靜默失敗偵測＋雙欄排序＋表格閘門）
-figures/      圖片抽取 + 決定論 QC 閘門（進入點 figure_remap.py）
+figures/      圖片抽取 + 決定論 QC 閘門 + 雜訊前置閘（進入點 figure_remap.py）
 citations/    章節引用回查——證明每個「Author Ch.N」真的指向存在的章節
 skills/       可直接放入 Claude Code 的 skill 定義（textbook-to-md、figure-remap）
 workflows/    筆記撰寫演算法（可改造成你自己的筆記系統）

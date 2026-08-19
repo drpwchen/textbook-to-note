@@ -271,6 +271,11 @@ Handle the contract's `status` field exactly as documented in
 number, then retry or leave a `<!-- TODO -->`; `escalate` → only reachable
 with `--no-strict`.
 
+One exception inside `fail`: when `reason` starts with `pregate=`, the crop
+was fine and the junk pre-gate judged it to be a chapter banner or a blank.
+Drop that figure and move on — no page check, no retry, no TODO. Retrying
+just re-crops the same banner.
+
 ### Embedding format
 
 Put the italic caption on the line immediately above the image; embed with

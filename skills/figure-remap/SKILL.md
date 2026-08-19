@@ -20,6 +20,9 @@ not a "crop utility." The system has six explicit layers:
 ├─ Policy ─────────────────────────────────────────────┤
 │  strict = deterministic + ambiguity-intolerant      │
 │  L1 / L2 / L3 hard-fail hierarchy                   │
+├─ Junk pre-gate ─────────────────────────────────────┤
+│  pregate.verdict() on a QC-passed crop:             │
+│  chapter-banner geometry / blank → kill, no retry   │
 ├─ Backend selection ─────────────────────────────────┤
 │  Capability-based: _select_backend()                │
 │    "geometric"  | "caption_anchor" | [future]       │
@@ -201,6 +204,13 @@ Those eight keys, no more and no fewer — `_validate()` in
 - `status:fail` (exit 1) → deterministic miss / hard_fail. ==NOT a wrong
   figure — a correct refusal.== Fix `--page`, escalate to vision, or leave a
   `<!-- TODO -->`.
+- `status:fail` with `reason` starting `pregate=` (exit 1, `hard_fail:false`)
+  → different animal: extraction and QC both succeeded, then the junk pre-gate
+  (`figures/pregate.py`) judged the crop to be a chapter-title banner or a
+  blank. ==Skip this fig_id entirely — do not retry, do not fix `--page`, do
+  not leave a retry TODO.== Retrying only re-crops the same banner. Applies to
+  born-digital geometric crops; the scanned `caption_anchor` path and the
+  `existing` fast path return no bbox, so the pre-gate abstains there.
 - `status:escalate` (exit 2) → non-strict only; read the page render, then
   re-call with `--bbox`.
 

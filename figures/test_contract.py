@@ -183,6 +183,78 @@ check("internal gate CLI guarded (exit 2 + redirect msg)",
       proc.returncode == 2 and "figure_remap.py extract" in proc.stderr,
       f"rc={proc.returncode} stderr={proc.stderr[:80]!r}")
 
+# ─── junk pre-gate (pregate.py) ───
+# Pure-unit: no fixture PDF needed, so these run everywhere including CI.
+import pregate  # noqa: E402
+
+_BANNER = {"fy0": 0.0, "fy1": 0.20, "w_frac": 0.99, "h_frac": 0.20,
+           "table_cover_max": 0.0, "char_density": 4.0, "image_cover": 0.0,
+           "n_drawings": 6, "px_std": 62.0}
+_VECTOR_FIG = {**_BANNER, "n_drawings": 90}          # real vector figure up top
+_MIDPAGE = {**_BANNER, "fy0": 0.30, "fy1": 0.70}     # same shape, mid-page
+_NARROW = {**_BANNER, "w_frac": 0.55}                # half-width crop
+_BLANK = {**_VECTOR_FIG, "px_std": 1.2}
+
+check("pregate kills chapter-banner geometry",
+      pregate.verdict(_BANNER) == ("kill", "banner"),
+      f"got {pregate.verdict(_BANNER)}")
+check("pregate spares a real vector figure at the top of a page",
+      pregate.verdict(_VECTOR_FIG) == ("pass", None),
+      f"got {pregate.verdict(_VECTOR_FIG)}")
+check("pregate spares a mid-page crop of banner proportions",
+      pregate.verdict(_MIDPAGE) == ("pass", None),
+      f"got {pregate.verdict(_MIDPAGE)}")
+check("pregate spares a narrow crop at the top of a page",
+      pregate.verdict(_NARROW) == ("pass", None),
+      f"got {pregate.verdict(_NARROW)}")
+check("pregate kills a blank crop regardless of geometry",
+      pregate.verdict(_BLANK) == ("kill", "blank"),
+      f"got {pregate.verdict(_BLANK)}")
+check("pregate abstains on a crop with no pixel data (px_std None)",
+      pregate.verdict({**_VECTOR_FIG, "px_std": None}) == ("pass", None),
+      f"got {pregate.verdict({**_VECTOR_FIG, 'px_std': None})}")
+
+# Fail-open: a junk filter must never become a source of missing figures.
+_RAW_OK = {"pass": True, "file": str(OUT),
+           "attempts": [{"src": "geometric_match", "pass": True, "bbox": [0, 0, 10, 10]}]}
+check("pregate abstains without pdf/page context",
+      fr._pregate_kill(None, 3, _RAW_OK) is None and fr._pregate_kill("x.pdf", None, _RAW_OK) is None)
+check("pregate abstains when the winning attempt carries no bbox",
+      fr._pregate_kill("x.pdf", 3, {"pass": True, "attempts": [{"src": "caption_anchor", "pass": True}]}) is None)
+check("pregate fails open on an unreadable PDF (no kill)",
+      fr._pregate_kill(str(HERE / "does_not_exist.pdf"), 3, _RAW_OK) is None)
+
+# Contract shape on a kill: fail + hard_fail false + skip-don't-retry reason.
+_orig_gate, _orig_log, _orig_kill = fr._impl.gate, fr._impl.log_qc, fr._pregate_kill
+try:
+    OUT.write_bytes(b"crop")
+    fr._impl.gate = lambda **kw: {
+        "pass": True, "file": str(OUT), "match_method": "geometric_match",
+        "fig_id_normalized": "1.1", "qc_degraded": False, "qc_skipped": [],
+        "attempts": [{"src": "geometric_match", "pass": True, "bbox": [0, 0, 10, 10]}]}
+    fr._impl.log_qc = lambda *a, **k: None
+    fr._pregate_kill = lambda *a, **k: "banner"
+    rk = fr.extract(book="test_book", fig_id="1.1", caption="Figure 1.1 x",
+                    out=OUT, pdf="x.pdf", page=1)
+    check("pregate kill → fail, hard_fail false, no file, skip-not-retry reason",
+          rk.get("status") == "fail" and rk.get("hard_fail") is False
+          and rk.get("file") is None and rk.get("reason", "").startswith("pregate=banner")
+          and "do not retry" in rk.get("reason", ""),
+          f"got {rk}")
+    check("pregate kill returns ONLY contract keys",
+          set(rk) == CONTRACT_KEYS, f"got {sorted(set(rk) ^ CONTRACT_KEYS)}")
+    check("pregate kill removes the crop file",
+          not OUT.exists(), "crop left on disk")
+    fr._pregate_kill = lambda *a, **k: None
+    rp = fr.extract(book="test_book", fig_id="1.1", caption="Figure 1.1 x",
+                    out=OUT, pdf="x.pdf", page=1)
+    check("pregate pass leaves the normal pass contract untouched",
+          rp.get("status") == "pass" and rp.get("match_quality") == "exact",
+          f"got {rp}")
+finally:
+    fr._impl.gate, fr._impl.log_qc, fr._pregate_kill = _orig_gate, _orig_log, _orig_kill
+    OUT.unlink(missing_ok=True)
+
 # ─── report ───
 fails = [r for r in results if r[1] == "FAIL"]
 for name, status, detail in results:
