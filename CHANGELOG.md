@@ -33,6 +33,39 @@ loose semantic versioning.
   on any unexpected condition — a guard that blocks commits for its own reasons is worse
   than no guard.
 
+- **`.githooks/commit-msg` — the guard now runs for every committer, not just some sessions.**
+  The `PreToolUse` hook above is only loaded when the Claude Code session's project root *is*
+  this repo; a session rooted elsewhere never reads `.claude/settings.json`, so the guard
+  never fires. That was measured on 2026-08-20 in a sibling repo running the same guard: a
+  commit touching only implementation code went through with exit 0, and the guard's own
+  test suite passed 21/21 the whole time. **The logic was correct; nothing was connected
+  to it.**
+
+  The git hook has no such condition — Claude, another agent, or a person typing by hand all
+  go through it. It is `commit-msg` rather than `pre-commit` because the `[no-spec]` escape
+  hatch lives in the commit message, which `pre-commit` cannot see; `commit-msg` also runs
+  after the index is final, so `git commit -a` content is covered without guessing at flags.
+  Merges, rebases, cherry-picks and reverts pass through untouched — those replay decisions
+  someone already made. Both entry points call one `verdict()`; a second copy of the rule
+  would drift from the first within days.
+
+  **Install once per clone** (git hooks do not travel with a clone):
+
+  ```
+  git config core.hooksPath .githooks
+  ```
+
+  Without it, commits proceed as before — this is defence in depth, not the only defence.
+
+- **`.claude/hooks/test_spec_guard_git.sh`** — 11 behaviour tests that run real `git commit`
+  calls in a throwaway repo against the real guard and the real hook file. The existing
+  synthetic-payload tests prove the *logic*; these prove the *wiring*, and the 2026-08-20
+  incident is precisely the failure the first kind cannot see.
+
+- **`.gitattributes`** — pins `.githooks/*` and `*.sh` to LF. With `core.autocrlf=true` a
+  checkout rewrites the hook to CRLF and `#!/bin/sh` fails as `bad interpreter: /bin/sh^M`,
+  which would take the guard down silently.
+
 - **`CLAUDE.md`** — routes the repo's two AI audiences apart: an agent *deploying* this tool
   for a user reads `AGENTS.md`; an agent *changing this repo* reads `openspec/README.md`.
 

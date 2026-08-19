@@ -1,0 +1,37 @@
+#!/bin/sh
+# git-level entry point for spec-sync-guard (added 2026-08-20).
+#
+# Why it exists: the PreToolUse hook in `.claude/settings.json` is only loaded when the
+# Claude Code session's project root IS this repo. A session rooted elsewhere never
+# reads it, so the guard never fires — measured 2026-08-20 in a sibling repo, where a
+# commit touching only implementation code sailed through with exit 0.
+# This hook has no such condition: every committer goes through it, whether that is
+# Claude, another agent, or a person typing by hand.
+#
+# The decision is not implemented here. It lives in verdict() inside
+# .claude/hooks/spec-sync-guard.py, shared by both entry points — a second copy of the
+# rule would drift from the first within days.
+#
+# Escape hatches: `[no-spec]` anywhere in the commit message, or `git commit --no-verify`.
+#
+# Install (once per clone, git hooks do not travel with a clone):
+#     git config core.hooksPath .githooks
+
+set -e
+
+REPO=$(git rev-parse --show-toplevel)
+GUARD="$REPO/.claude/hooks/spec-sync-guard.py"
+
+# A missing guard must not block a commit — fail open, as everywhere else here.
+[ -f "$GUARD" ] || exit 0
+
+# `python3` is often absent on Windows/Git Bash while `python` is present. Try both.
+if command -v python >/dev/null 2>&1; then
+    PY=python
+elif command -v python3 >/dev/null 2>&1; then
+    PY=python3
+else
+    exit 0
+fi
+
+"$PY" "$GUARD" --git-commit-msg "$1"
