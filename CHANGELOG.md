@@ -46,6 +46,26 @@ loose semantic versioning.
   knobs**: `pregate.py` and `CALIBRATION.md` both say not to refit them on the set you then quote,
   which is what turns a measurement into a claim.
 
+- **The figure-classification step of the note workflow, with its frozen prompt**
+  (`figures/classify_prompt.txt`, and a new section in `workflows/note-writing.md`). A QC `pass`
+  says the crop is the raster the caption owns; it does not say the crop is worth embedding. The
+  workflow previously went straight from `pass` to embed, so tables, truncated figures, and the
+  banners the pre-gate cannot see reached notes. Now every crop is classified in one batch before
+  the first embed — image and caption only, never the filename or figure number — into
+  embed / callout / skip / retry, with one deterministic abstention rule on top: an `embed` whose
+  `usable` is not `yes`, or whose `crop_quality` is `uncertain`, or whose `confidence` is `low`,
+  becomes `retry`, the one case a human looks at the image.
+
+  **Measured** on the same held-out set of 244 crops: **Claude Sonnet 5** with this prompt and rule
+  let **1 junk crop of 100** through; **Claude Haiku 4.5** let **6 of 100** through on the same set,
+  and every one of its misses was a high-confidence perceptual error with all four fields
+  self-consistent — a table called `other`, a chapter banner called `imaging`. The abstention rule
+  reads the model's own fields, so it cannot reach that class of error; the cheaper tier is not
+  substitutable with more rules here, which is why the workflow says to run this step on a
+  frontier-tier model. Both numbers are measurements of those models on that set, not properties of
+  the pipeline, and the prompt is frozen for the same reason: reword it and the numbers no longer
+  describe it.
+
 - **13 contract regression checks for the pre-gate** in `figures/test_contract.py` — rule verdicts,
   fail-open behavior on missing pdf/page/bbox and on an unreadable PDF, and the kill-path contract
   shape (fail + `hard_fail:false` + skip-not-retry reason + crop removed). All are pure-unit, so

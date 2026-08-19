@@ -28,7 +28,7 @@ path-dependent knowledge base.
 | 1.5 | **Section skeleton first** — list section structure with one-line placeholders, no expansion | No |
 | 2 | *(optional, pluggable)* External evidence/enrichment stage — e.g. a clinical-evidence API, a regulatory/reimbursement database, or any other domain-specific lookup — integrated inline into the relevant sub-sections | No |
 | 3 | *(optional, pluggable)* A second domain-specific enrichment stage, if your domain has one (only if the template calls for it) | No |
-| 3.5 | **Figure harvest** — pull relevant figures from the textbook corpus via `figure_remap.py extract` (default ON; opt out with a flag) | No |
+| 3.5 | **Figure harvest** — pull relevant figures from the textbook corpus via `figure_remap.py extract`, then classify every crop before embedding any (default ON; opt out with a flag) | No |
 | 4 | Compare with existing note — **deconstruct & reslot**, never append | Yes |
 | 5 | Link suggestion on the final note (optional; default ON) | Yes |
 
@@ -275,6 +275,56 @@ One exception inside `fail`: when `reason` starts with `pregate=`, the crop
 was fine and the junk pre-gate judged it to be a chapter banner or a blank.
 Drop that figure and move on — no page check, no retry, no TODO. Retrying
 just re-crops the same banner.
+
+### Classify every crop before embedding any of it
+
+A `pass` means the crop is the raster the caption owns. It does not mean the
+crop is worth embedding: it can be a table, a page banner the pre-gate could
+not see, a truncated figure, or a figure whose message is really a list of
+criteria. So classify **after all candidates have been extracted and before
+the first embed**, in one batch — batching keeps the judgment uniform, and
+doing it before any embed means nothing gets written and then retracted.
+
+Give a vision-capable agent the frozen prompt at
+[`figures/classify_prompt.txt`](../figures/classify_prompt.txt) verbatim, plus
+one record per crop — `{id, image_path, caption}`, where `caption` is the real
+caption text read from the source, not the fig_id. It looks at the image and
+the caption only (never the filename, book, or figure number) and returns one
+JSON object per crop:
+
+```json
+{"id": "...", "usable": "yes|no|uncertain", "figure_type": ["..."],
+ "crop_quality": "complete|truncated|wrong_page|mostly_text|blank|uncertain",
+ "action": "embed|callout|skip|retry", "confidence": "high|low"}
+```
+
+Then apply one deterministic **abstention rule** on top of the answer: if
+`action` is `embed` but `usable` is not `yes`, or `crop_quality` is
+`uncertain`, or `confidence` is `low` → force it to `retry`. Route by the
+final action, and account for every crop:
+
+| action | what happens |
+|---|---|
+| `embed` | embed it (next section) |
+| `callout` | do not embed — transcribe the figure's content into a text callout |
+| `skip` | drop it; note the fig_id and the type the classifier called it |
+| `retry` | **the only case a human/driver looks at the image** — embed, fix `--page` and re-extract, or leave a TODO |
+
+**Use a frontier-tier model for this step.** On a held-out set of 244 crops
+with frozen reference labels, this prompt plus the abstention rule let
+**1 junk crop of 100** through with Claude Sonnet 5, and **6 of 100** with
+Claude Haiku 4.5. Every one of Haiku's misses was a high-confidence perceptual
+error — a table called `other`, a chapter banner called `imaging` — with all
+four fields self-consistent. The abstention rule keys on the model's own
+fields, so it cannot reach that class of error at all: the cheaper tier is not
+something you can buy back with more rules. Both figures are measurements of
+those two models on that set, not a property of this pipeline; measure your own
+before substituting a model.
+
+`figures/classify_prompt.txt` is a **frozen file**. Rewording it changes those
+numbers, so keep a labelled crop set of your own and re-measure leak /
+false-skip / retry-load before adopting an edit — changing the eyes without
+re-checking the prescription is how a silent regression gets in.
 
 ### Embedding format
 
