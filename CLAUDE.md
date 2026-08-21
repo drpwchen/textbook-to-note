@@ -27,6 +27,34 @@ point is to have the argument before the code exists rather than after.
 `openspec/specs/` itself is edited only by the archive step, never to describe work you are
 about to do.
 
+### How much ceremony — decide before you start
+
+Not every change earns a full spec cycle. The test: **if the agent misread the requirement,
+does one follow-up prompt fix it?**
+
+- Yes → **Tier 0.** No spec. Commit with `[no-spec]`. Tests still have to be green.
+- No, but the scope is unambiguous → **Tier 1.** Half a page of delta spec, written as
+  acceptance criteria (Given-When-Then, observable Then, thresholds as literal numbers).
+- Anything on the list below → **Tier 2.** Full cycle (proposal + delta + tasks), line-by-line
+  maintainer approval, and one independent verifier pass after the implementation is done.
+
+Tier 2 in this repo:
+
+- **OCR routing** — what sends a PDF down the Surya path, the silent-`fitz`-failure detection,
+  `--force-surya`. It only exists in the `--batch-dir` path, and getting it wrong costs a user
+  a multi-GB install and hours of runtime.
+- **Table gating** — every `T2N_TABLE_*` constant, `figures/figure_qc_gate.py`,
+  `figures/pregate.py`, and the review-queue flagging. A gate that is too loose ships a
+  misbound dose as clean citable data.
+- **Release discipline** — anything that changes what a released tag contains, or the
+  `CHANGELOG` + tag flow itself.
+
+⚠️ Tier 0 means "cheap to notice and cheap to undo", **not "small diff"**. A two-line change
+with fuzzy scope is exactly where an agent improvises — that one is Tier 1.
+
+The full tiering rules live in the maintainer's local toolkit and are not part of this repo.
+If you are an outside contributor, **default to Tier 1** and let the maintainer downgrade it.
+
 ### The commit guard
 
 `.claude/hooks/spec-sync-guard.py` blocks a `git commit` that stages `converter/`,

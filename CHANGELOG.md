@@ -69,6 +69,16 @@ loose semantic versioning.
 - **`CLAUDE.md`** — routes the repo's two AI audiences apart: an agent *deploying* this tool
   for a user reads `AGENTS.md`; an agent *changing this repo* reads `openspec/README.md`.
 
+- **Change tiers — how much ceremony a change earns, decided before it starts**
+  (`CLAUDE.md`). A three-tier rule: one follow-up prompt fixes a misread requirement → no spec, `[no-spec]`, tests still
+  green; unambiguous scope → half a page of acceptance criteria; OCR routing, table gating, or
+  release discipline → the full cycle plus an independent verifier pass. Running the full
+  ceremony on every change was costing more than it caught, and the alternative to *some*
+  ceremony was never *less* ceremony — it was the spec quietly becoming a changelog again.
+  The tier test is "cheap to notice and cheap to undo", **not "small diff"**: a two-line change
+  with fuzzy scope is exactly where an agent improvises. Outside contributors default to
+  Tier 1. No behaviour changed.
+
 ## [0.7.1] — 2026-08-19 — A check that asks a model cannot be the one that blocks
 
 ### Changed
