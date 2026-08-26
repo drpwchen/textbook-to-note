@@ -21,10 +21,19 @@ Locks the invariants that were each a real bug caught on a live corpus:
   9. A file-sequence number is reported as FILE_INDEX with the chapter it
      really belongs to, ordered numerically (ch100 must not sort before ch11).
  10. Two inline-code references on one line stay independent.
+ 11. The converter's own "chNN_Title.md" output is recorded as a file SEQUENCE,
+     never as a chapter table — the number is convert.py's split counter, not
+     the book's printed chapter number.
+ 12. A hand-written _chapter_index.chapters.json makes such a book checkable.
+ 13. The corpus root is never the current working directory, a rebuild that
+     recognises no book refuses to write, and one unreadable directory does not
+     abort the scan.
 """
 from __future__ import annotations
 
 import json
+import os
+import pathlib
 import shutil
 import sys
 import tempfile
@@ -95,6 +104,11 @@ def build_corpus(root: Path) -> dict:
           "ch01_1_Alpha.md", "ch02_2_Beta.md", "ch03_40_Omega.md", "ch07_41_Zeta.md")
     # Not chapter-structured at all
     touch(root / "Kappa_Sliced_1e_2008", "pages_0001-0030.md", "pages_0031-0060.md")
+    # This repo's OWN converter output: lowercase "ch", one number, and that number is a
+    # split-point counter, not the printed chapter number. Reading it as a chapter number
+    # is the bug this fixture exists to prevent.
+    touch(root / "Lambda_Converted_1e_2024",
+          "ch00_Front_Matter.md", "ch01_Introduction.md", "ch02_Methods.md", "ch03_Results.md")
 
     idx = tci.build(root)
     tci.index_path(root).write_text(json.dumps(idx, ensure_ascii=False), encoding="utf-8")
@@ -174,7 +188,83 @@ def main() -> int:
         check("two independent refs", len(refs), 2)
         check("second does not inherit the first", refs[1][0][0], "Beta")
 
-        print("\n11. exit codes")
+        print("\n11. converter output is a file sequence, not a chapter table")
+        lam = books["Lambda_Converted_1e_2024"]
+        check("strategy seq", lam["strategy"], "seq")
+        check("no chapter table is invented", lam["chapters"], {})
+        check("sequence table is kept", lam["sequence"]["2"], "Methods")
+        check("front matter is not a chapter", "0" in lam["sequence"], False)
+        v, detail = verdict_of("Lambda Ch.2", root, index)
+        check("verdict", v, "UNVERIFIABLE")
+        check("says it is a file sequence", "file sequence" in detail, True)
+        check("names the file it lands on", "ch02_Methods" in detail, True)
+        check("names the fix", tci.CHAPTERS_NAME in detail, True)
+
+        print("\n12. a pinned chapter table makes it checkable")
+        (root / tci.CHAPTERS_NAME).write_text(
+            json.dumps({"Lambda_Converted_1e_2024": {"1": "Shoulder", "2": "Elbow", "3": "Wrist"}}),
+            encoding="utf-8")
+        pinned_index = tci.build(root)
+        check("strategy pinned", pinned_index["books"]["Lambda_Converted_1e_2024"]["strategy"], "pinned")
+        v, detail = verdict_of("Lambda Ch.2", root, pinned_index)
+        check("verdict", v, "OK")
+        check("uses the pinned title", "Elbow" in detail, True)
+        (root / tci.CHAPTERS_NAME).unlink()
+
+        print("\n13. root resolution and rebuild refusal")
+        os.environ["TEXTBOOK_DIR"] = str(root)
+        try:
+            check("TEXTBOOK_DIR is used", tci.resolve_root(None), root)
+        finally:
+            os.environ.pop("TEXTBOOK_DIR", None)
+        check("cwd is never the default", tci.default_root() in (None, tci.OUTPUT_DIR), True)
+        check("--textbook-dir wins", tci.resolve_root(str(root)), root)
+
+        real_default_root = tci.default_root
+        tci.default_root = lambda: None
+        try:
+            check("no corpus → lint exits 2",
+                  trl.lint(refs=["Alpha Ch.1"], quiet=True), 2)
+        finally:
+            tci.default_root = real_default_root
+
+        # A directory of non-books (the repo's own tree is the real-world case) must not
+        # produce a cheerful 0-book index.
+        junk = tmp / "junk"
+        touch(junk / "converter", "convert.md")
+        touch(junk / "docs", "architecture.md")
+        argv = sys.argv
+        sys.argv = ["textbook_chapter_index.py", "--rebuild", "--textbook-dir", str(junk)]
+        try:
+            check("nothing recognised → exit 2", tci.main(), 2)
+            check("and no index is written", tci.index_path(junk).exists(), False)
+            sys.argv.append("--allow-empty")
+            check("--allow-empty writes it anyway", tci.main(), 0)
+            check("index now exists", tci.index_path(junk).exists(), True)
+        finally:
+            sys.argv = argv
+
+        # One unreadable directory (a Windows profile junction is the real case) must be
+        # skipped, not allowed to abort the whole rebuild.
+        blocked = root / "Blocked_Book_1e_2000"
+        blocked.mkdir(parents=True, exist_ok=True)
+        real_iterdir = pathlib.Path.iterdir
+
+        def guarded(self):
+            if self.name == "Blocked_Book_1e_2000":
+                raise PermissionError(5, "Access is denied.")
+            return real_iterdir(self)
+
+        pathlib.Path.iterdir = guarded
+        try:
+            idx2 = tci.build(root)
+        finally:
+            pathlib.Path.iterdir = real_iterdir
+            blocked.rmdir()
+        check("unreadable dir is skipped", idx2["skipped"], ["Blocked_Book_1e_2000"])
+        check("the rest still indexed", "Delta_Text_6e_2015" in idx2["books"], True)
+
+        print("\n14. exit codes")
         check("clean → 0", trl.lint(refs=["Alpha Ch.1"], textbook_dir=str(root), quiet=True), 0)
         check("offender → 1", trl.lint(refs=["Delta Ch.99"], textbook_dir=str(root), quiet=True), 1)
         check("unverifiable → 3", trl.lint(refs=["Nobody Ch.1"], textbook_dir=str(root), quiet=True), 3)

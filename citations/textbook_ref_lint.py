@@ -36,20 +36,25 @@ Usage
   python textbook_ref_lint.py --decisions               # names needing a pinned edition
   python textbook_ref_lint.py --textbook-dir PATH       # or set TEXTBOOK_DIR
 
-Exit: 0 clean · 1 offenders found · 3 cannot verify (no index / nothing to check)
+The corpus root is never the current working directory: --textbook-dir, else TEXTBOOK_DIR,
+else this repo's own output/ when it exists. With none of those the command refuses.
+
+Exit: 0 clean · 1 offenders found · 2 no corpus to check against ·
+      3 cannot verify (no index / nothing to check)
 """
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from textbook_chapter_index import load, load_aliases, resolve  # noqa: E402
+from textbook_chapter_index import (  # noqa: E402
+    CHAPTERS_NAME, NO_ROOT_MSG, load, load_aliases, resolve, resolve_root,
+)
 
 DEFAULTS_NAME = "_chapter_index.defaults.json"
 # A book whose md covers >=90% of its chapter run counts as fully converted, so
@@ -163,8 +168,21 @@ def check_ref(names: list[str], chapter: str, edition: str | None, index: dict,
     if pinned and pinned in books:
         books = [pinned]
 
-    mapped = [b for b in books if index["books"][b]["strategy"] != "none"]
+    mapped = [b for b in books if index["books"][b]["strategy"] not in ("none", "seq")]
     if not mapped:
+        # "seq" is this repo's own converter output: the numbers on disk are a file
+        # sequence, so there is no chapter table to check against. Say which file the
+        # cited number lands on and how to make the book checkable — the generic
+        # "no chapter structure" answer is both wrong (it IS chapter-split) and useless.
+        seq_books = [b for b in books if index["books"][b]["strategy"] == "seq"]
+        if seq_books:
+            b = seq_books[0]
+            title = (index["books"][b].get("sequence") or {}).get(chapter)
+            lands = f"; file sequence {chapter} is ch{int(chapter):02d}_{title}" if title else ""
+            return "UNVERIFIABLE", (f"{b} was split by the converter's file sequence, so its "
+                                    f"chapter numbers are not in the filenames{lands} — pin the "
+                                    f"real chapter table in {CHAPTERS_NAME} to make this "
+                                    f"checkable"), surname
         return "UNVERIFIABLE", f"{books[0]} has no machine-readable chapter structure " \
                                f"(sliced by page or by section)", surname
 
@@ -239,7 +257,10 @@ def lint(targets: list[str] | None = None, refs: list[str] | None = None, *,
          textbook_dir: str | None = None, show_ok: bool = False,
          decisions: bool = False, quiet: bool = False) -> int:
     """Run the chapter check. Exit codes as documented at the top of the file."""
-    root = Path(textbook_dir or os.environ.get("TEXTBOOK_DIR", ".")).expanduser()
+    root = resolve_root(textbook_dir)
+    if root is None:
+        print(f"REFUSED: {NO_ROOT_MSG}", file=sys.stderr)
+        return 2
     try:
         index = load(root)
     except (FileNotFoundError, json.JSONDecodeError) as e:

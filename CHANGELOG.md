@@ -8,6 +8,132 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [Unreleased] — the behaviour contract moves into the repo
+
+### Added
+- **`openspec/` — the tool's behaviour contract, written down.** Four domain specs
+  (`conversion`, `table-extraction`, `figure-extraction`, `note-workflow`) state what this
+  tool does as testable requirements: each scenario's THEN is something a program or a
+  person can observe, every threshold carries its number, and every requirement states what
+  must *not* happen. They were extracted from this repo's own `README.md`, `AGENTS.md`,
+  `docs/`, `CHANGELOG.md`, and the constants in `converter/convert.py` and `figures/*.py`,
+  and describe behaviour that shipped as of 0.7.1 — **no behaviour changed in this entry**.
+
+  The reason to have them: the rules this project keeps re-deriving in prose — *never tune a
+  QC threshold to make a failing case pass*, *a default-ON behaviour needs a corpus
+  measurement*, *the gate refuses rather than guesses*, *misbinding is flagged, never
+  auto-repaired* — are now in one place a reviewer can check a change against, instead of
+  being scattered across changelog entries nobody re-reads.
+
+- **`.claude/hooks/spec-sync-guard.py`** — a `PreToolUse` hook that blocks a `git commit`
+  staging `converter/`, `figures/`, `citations/`, `shared/`, `skills/`, `workflows/`, or
+  `templates/` while staging nothing under `openspec/` and no `CHANGELOG.md` entry.
+  Test-only changesets are exempt; `[no-spec]` in the commit message bypasses it. Written in
+  Python rather than the usual bash+`jq` so it runs unchanged on Windows, and it fails open
+  on any unexpected condition — a guard that blocks commits for its own reasons is worse
+  than no guard.
+
+- **`.githooks/commit-msg` — the guard now runs for every committer, not just some sessions.**
+  The `PreToolUse` hook above is only loaded when the Claude Code session's project root *is*
+  this repo; a session rooted elsewhere never reads `.claude/settings.json`, so the guard
+  never fires. That was measured on 2026-08-20 in a sibling repo running the same guard: a
+  commit touching only implementation code went through with exit 0, and the guard's own
+  test suite passed 21/21 the whole time. **The logic was correct; nothing was connected
+  to it.**
+
+  The git hook has no such condition — Claude, another agent, or a person typing by hand all
+  go through it. It is `commit-msg` rather than `pre-commit` because the `[no-spec]` escape
+  hatch lives in the commit message, which `pre-commit` cannot see; `commit-msg` also runs
+  after the index is final, so `git commit -a` content is covered without guessing at flags.
+  Merges, rebases, cherry-picks and reverts pass through untouched — those replay decisions
+  someone already made. Both entry points call one `verdict()`; a second copy of the rule
+  would drift from the first within days.
+
+  **Install once per clone** (git hooks do not travel with a clone):
+
+  ```
+  git config core.hooksPath .githooks
+  ```
+
+  Without it, commits proceed as before — this is defence in depth, not the only defence.
+
+- **`.claude/hooks/test_spec_guard_git.sh`** — 11 behaviour tests that run real `git commit`
+  calls in a throwaway repo against the real guard and the real hook file. The existing
+  synthetic-payload tests prove the *logic*; these prove the *wiring*, and the 2026-08-20
+  incident is precisely the failure the first kind cannot see.
+
+- **`.gitattributes`** — pins `.githooks/*` and `*.sh` to LF. With `core.autocrlf=true` a
+  checkout rewrites the hook to CRLF and `#!/bin/sh` fails as `bad interpreter: /bin/sh^M`,
+  which would take the guard down silently.
+
+- **`CLAUDE.md`** — routes the repo's two AI audiences apart: an agent *deploying* this tool
+  for a user reads `AGENTS.md`; an agent *changing this repo* reads `openspec/README.md`.
+
+- **Change tiers — how much ceremony a change earns, decided before it starts**
+  (`CLAUDE.md`). A three-tier rule: one follow-up prompt fixes a misread requirement → no spec, `[no-spec]`, tests still
+  green; unambiguous scope → half a page of acceptance criteria; OCR routing, table gating, or
+  release discipline → the full cycle plus an independent verifier pass. Running the full
+  ceremony on every change was costing more than it caught, and the alternative to *some*
+  ceremony was never *less* ceremony — it was the spec quietly becoming a changelog again.
+  The tier test is "cheap to notice and cheap to undo", **not "small diff"**: a two-line change
+  with fuzzy scope is exactly where an agent improvises. Outside contributors default to
+  Tier 1. No behaviour changed.
+
+### Fixed
+- **The chapter index no longer scans whatever directory you happened to be in** (#17). Both
+  `citations/textbook_chapter_index.py` and `citations/textbook_ref_lint.py` defaulted their
+  corpus root to `Path(".")`. Run from the repo root, `--rebuild` indexed `converter/`, `docs/`,
+  `figures/`… as if each were a book, wrote a 0-book index and printed `OK` — after which every
+  citation into every book came back UNVERIFIABLE with nothing saying the wrong tree had been
+  scanned. Run from a Windows home directory it died outright on the `Application Data` junction
+  with `PermissionError`, writing nothing.
+
+  The root is now `--textbook-dir`, else `TEXTBOOK_DIR`, else this repo's own `output/` when it
+  exists, and the command **refuses** rather than falling back to the working directory. A
+  rebuild that recognises no book at all exits 2 without writing (`--allow-empty` overrides), the
+  summary line names the root it actually scanned, and an unreadable subdirectory is skipped and
+  counted instead of aborting the run. `workflows/note-writing.md` documents the commands with
+  the corpus named, since its bare form is what led into this.
+
+- **A book this repo's own converter chapter-split is now recognised, and says why it cannot be
+  verified** (#15). `convert.py` writes `ch01_Introduction.md`, `ch02_…` — and **that number is a
+  split-point counter, not the book's printed chapter number** (`ch_num = idx + 1`, over
+  `detect_chapters()` hits or level-1 *and* level-2 bookmarks). No index strategy matched the
+  shape, so every book converted through `--batch-dir` recorded `strategy: "none"` and every
+  citation into it returned "no machine-readable chapter structure (sliced by page or by
+  section)" — inaccurate, and with no way forward.
+
+  Such a book is now `strategy: "seq"`, carrying its sequence→title table, and a citation into it
+  reports which *file* the cited number lands on and names `_chapter_index.chapters.json`, a new
+  optional hand-written `{book: {chapter: title}}` file that pins the real chapter table and makes
+  the book check normally. **The `chNN` number is still never read as a chapter number** — doing
+  that would hand back a confidently wrong chapter table for any book whose bookmarks include
+  sub-sections, which is precisely the failure `textbook_ref_lint.py`'s `FILE_INDEX` verdict
+  exists to catch.
+
+### Changed
+- **The review queue's continuation trigger is geometric, not textual** (#14). It fired on a
+  `(Continued)` caption in the page text, or on a table the merger stitched — and the merger is
+  `T2N_TABLE_MERGE=1`, default OFF. A textbook that simply runs a table past a page break without
+  printing a continuation caption — most of them — was therefore invisible to it, leaving the
+  dosage trigger as the only cover. A purely categorical clinical table (ASA physical status,
+  NYHA class, Mallampati) carries no dose token, so it was monitored by **nothing**: the reported
+  case is Morgan & Mikhail 7e's ASA table across pages 477→478, coming out with every class label
+  one row from its definition, in a grid clean enough that the structural QC gate had no
+  complaint.
+
+  With `T2N_REVIEW_QUEUE=1`, a table is now flagged as a continuation when the page geometry says
+  so — previous page's table running to the bottom, this one resuming at the top, same column
+  count, column x-edges within tolerance — using the merge path's own `TABLE_MERGE_*` constants
+  and working with the merger off. Still flag-only: nothing is stitched, reordered or repaired,
+  and the reason string names geometry so a reviewer can tell it from a caption-driven flag.
+  `T2N_REVIEW_QUEUE` stays default OFF and output with it unset is byte-identical.
+
+  `docs/table-review.md` also stops implying the two triggers are an intersection. They have
+  always been independent in code (`review_reasons()` returns a reason for either); the pilot
+  measured its 1-in-6 rate *on* the continuation×dose intersection, which is a sampling fact, not
+  a trigger condition — and reading it as one is what left this class of table uncovered.
+
 ## [0.7.1] — 2026-08-19 — A check that asks a model cannot be the one that blocks
 
 ### Changed

@@ -41,11 +41,25 @@ the next, a lab value's clinical interpretation attached to the wrong condition.
 ## What the pipeline flags (the trigger)
 
 `converter/review_queue.py` is a deterministic, **flag-only** trigger — it never
-rejects, never edits, never touches table content. It marks the two-part high-risk
-subset (over-inclusive on purpose; a false flag costs one review, a missed misbinding
-ships wrong clinical data):
+rejects, never edits, never touches table content. It marks the high-risk subset
+(over-inclusive on purpose; a false flag costs one review, a missed misbinding ships
+wrong clinical data). The two triggers are **independent — either one alone flags a
+table**:
 
-1. **continuation-page tables** — where orphan-fusion lives, and
+1. **continuation-page tables** — where orphan-fusion lives. Three signals, any of which
+   is enough:
+   - a `(Continued)` / `, Continued` / `cont'd` marker in the page text;
+   - a table the cross-page merger stitched (only with `T2N_TABLE_MERGE=1`);
+   - **page geometry alone** — the previous page's table runs to the bottom
+     (`TABLE_MERGE_BOTTOM_FRAC`, 0.12 of page height), this one resumes at the top
+     (`TABLE_MERGE_TOP_FRAC`, 0.28), same column count, column x-edges within
+     `TABLE_MERGE_XTOL_FRAC` (0.02) of page width. Same constants as the merge path, and
+     it works with the merger off.
+
+   The geometric signal exists because most textbooks break a table across a page without
+   printing any continuation caption. Before it, such a table was flagged only if it
+   happened to contain a dose token — so a purely categorical clinical table (ASA physical
+   status, NYHA class, Mallampati) was monitored by nothing at all (issue #14).
 2. **dosage / numeric-threshold tables** — cells carrying `mg`, `mL`, `mg/kg`, `IU`,
    `mEq/L`, `mmHg`, dose ranges, cut-offs; a misbound value here is the highest-severity
    output the tool can produce.
@@ -66,8 +80,11 @@ and `convert_pdf()`'s stats carry `review_flagged` (count) and `review_queue`
 > **Why testing found this worth doing.** In a pilot over the continuation×dose
 > intersection, roughly **one in six** of those tables carried a high-severity
 > misbinding a downstream model would cite as clean data — versus **~0** in a random
-> table sample. The danger concentrates exactly where both triggers meet, which is why
-> the queue keys on these two signals rather than reviewing every table.
+> table sample. That intersection is where the pilot measured the rate; it is **not**
+> the trigger condition. Either signal alone flags a table, because the mechanism —
+> a row that belongs to the previous page fused into this page's first labelled row —
+> does not need a dose value to be present in order to happen. It only needs one to be
+> catastrophic.
 
 ## The second opinion (the review pass)
 

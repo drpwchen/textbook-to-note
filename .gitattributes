@@ -1,0 +1,7 @@
+# Files that another program executes must keep LF endings. With core.autocrlf=true a
+# checkout rewrites them to CRLF, and a `#!/bin/sh` script with CRLF fails as
+# `bad interpreter: /bin/sh^M` — the git hook below would then silently stop guarding.
+# Git warns about the conversion at `git add` time; that warning is the advance notice
+# of exactly how this defence dies.
+.githooks/*  text eol=lf
+*.sh         text eol=lf
