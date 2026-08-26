@@ -710,13 +710,17 @@ class SidewaysReparse:
         self._plumber = self._doc = None
 
 
-def extract_tables_md(plumber_page, page_text: str | None = None) -> tuple[list[str], list[str]]:
-    """Extract tables from a pdfplumber page. Returns (markdown tables, rejection reasons).
-    find_tables() is used rather than extract_tables() only to get each table's bbox — pdfplumber
-    defines extract_tables() as exactly [t.extract() for t in find_tables()], so the extracted rows
-    are identical. `page_text` is the page's fitz text, used only as the oracle for the
-    reversed-text check (Fix 3); omitting it just skips that check."""
-    md_tables, rejects = [], []
+def extract_tables_md(plumber_page, page_text: str | None = None) -> tuple[list[str], list[str], list[dict]]:
+    """Extract tables from a pdfplumber page. Returns (markdown tables, rejection reasons,
+    geometry). find_tables() is used rather than extract_tables() only to get each table's bbox —
+    pdfplumber defines extract_tables() as exactly [t.extract() for t in find_tables()], so the
+    extracted rows are identical. `page_text` is the page's fitz text, used only as the oracle for
+    the reversed-text check (Fix 3); omitting it just skips that check.
+
+    `geometry` is parallel to the markdown list: one {bbox, page_w, page_h, col_count, xedges}
+    per emitted table, the inputs `geometric_continuation()` needs. It is derived from the
+    find_tables() result already computed here — no second detection pass."""
+    md_tables, rejects, geometry = [], [], []
     page_w = float(plumber_page.width or 0)
     page_h = float(plumber_page.height or 0)
     check_reversed = sideways_enabled()
@@ -733,7 +737,15 @@ def extract_tables_md(plumber_page, page_text: str | None = None) -> tuple[list[
             rejects.append(reason)
             continue
         md_tables.append(md)
-    return md_tables, rejects
+        cells = [c for c in (getattr(table, "cells", None) or []) if c]
+        geometry.append({
+            "bbox": tuple(float(v) for v in bbox) if bbox else None,
+            "page_w": page_w,
+            "page_h": page_h,
+            "col_count": max((len(r) for r in rows), default=0),
+            "xedges": sorted({round(c[0], 1) for c in cells}),
+        })
+    return md_tables, rejects, geometry
 
 
 # === Improvement 3: cross-page table merging ===
@@ -878,6 +890,36 @@ def _is_continuation(t1: dict, t2: dict) -> bool:
     if t1["heading_below"] or t2["heading_above"]:
         return False
     return True
+
+
+def geometric_continuation(prev: dict | None, cur: dict | None) -> bool:
+    """Does `cur` (a table at the top of page N+1) look like the continuation of `prev` (a table
+    at the bottom of page N), from geometry alone?
+
+    Used ONLY to decide whether a table enters the review queue (T2N_REVIEW_QUEUE). It never
+    stitches, reorders or edits anything, and it is independent of T2N_TABLE_MERGE.
+
+    Why it exists: the queue's continuation trigger used to be a textual "(continued)" marker, so
+    a table that simply runs past a page break with no continuation caption — most of them — was
+    invisible to it, and a categorical table (ASA class, NYHA class) carries no dose token to trip
+    the other trigger either. Issue #14 is exactly that case.
+
+    Same thresholds as the merge path's `_is_continuation()`, deliberately not a second set. It
+    omits only the intervening-heading veto, which needs per-line y-coordinates the plain path
+    does not compute; a heading between the two tables therefore costs one false flag, which is
+    the trade the review queue is explicitly built to make.
+    """
+    if not prev or not cur or not prev.get("bbox") or not cur.get("bbox"):
+        return False
+    if not prev.get("page_h") or not cur.get("page_h"):
+        return False
+    if (prev["page_h"] - prev["bbox"][3]) > TABLE_MERGE_BOTTOM_FRAC * prev["page_h"]:
+        return False
+    if cur["bbox"][1] > TABLE_MERGE_TOP_FRAC * cur["page_h"]:
+        return False
+    if not prev["col_count"] or prev["col_count"] != cur["col_count"]:
+        return False
+    return _xedges_match(prev["xedges"], cur["xedges"], prev["bbox"], cur["bbox"], prev["page_w"])
 
 
 def _rows_header_equal(rows_a, rows_b) -> bool:
@@ -1146,7 +1188,13 @@ def convert_pdf(pdf_path: str, out_path: str, book_label: str, table_worker=None
 
     if not merge_on:
         # Plain per-page path — byte-identical to the pre-merge output.
+        # The bottom-most table geometry of the page just emitted, so the next page's first
+        # table can be recognised as its continuation (review queue only — see
+        # geometric_continuation()). Reset to None by any page that emits no table, so a
+        # continuation is never claimed across an intervening table-free page.
+        prev_page_tail = None
         for i in range(total_pages):
+            page_geometry: list[dict] = []
             # Improvement 1: two-column reading order (exact-fallback inside render_page_text).
             page_text, fig_count = render_page_text(doc[i], i + 1)
             total_fig_refs += fig_count
@@ -1207,7 +1255,7 @@ def convert_pdf(pdf_path: str, out_path: str, book_label: str, table_worker=None
                             # reversed.
                             _tp, _ = sideways.substitute(_pp, doc, i)
                             page_sideways_rot = sideways.last_rotation
-                            plain, plumber_rejects = extract_tables_md(_tp, page_text)
+                            plain, plumber_rejects, page_geometry = extract_tables_md(_tp, page_text)
                             # Extend rather than replace: a Docling table rejected above must
                             # still be reported even when pdfplumber then handles the page.
                             rejects.extend(plumber_rejects)
@@ -1227,7 +1275,7 @@ def convert_pdf(pdf_path: str, out_path: str, book_label: str, table_worker=None
                 total_rejected += 1
                 output.append(f"\n<!-- ⚠️ pseudo-table rejected on page {i+1} "
                               f"({reason}) — its text is retained in the page prose above -->")
-            for tbl, flags in md_tables:
+            for t_idx, (tbl, flags) in enumerate(md_tables):
                 total_tables += 1
                 output.append(f"\n**[Table on page {i+1}]**\n")
                 if flags:
@@ -1241,13 +1289,25 @@ def convert_pdf(pdf_path: str, out_path: str, book_label: str, table_worker=None
                 if review_on:
                     # Orthogonal to the QC flag above: this catches MISBINDING (a value on the
                     # wrong row), which is structurally invisible so `flags` may be empty here.
-                    rr = review_reasons(tbl, page_text)
+                    # The geometric signal is what catches a table that runs past a page break
+                    # without printing a "(continued)" caption (issue #14); it is only available
+                    # for the FIRST table on the page, which is the only one that can continue
+                    # the previous page's last one.
+                    geo = page_geometry[t_idx] if t_idx < len(page_geometry) else None
+                    geo_cont = (t_idx == 0 and prev_page_tail is not None
+                                and geometric_continuation(prev_page_tail, geo))
+                    rr = review_reasons(tbl, page_text, geometric_continuation=geo_cont)
                     if rr:
                         total_review_flagged += 1
                         review_queue_entries.append((i + 1, rr))
                         output.append(format_review_marker(i + 1, rr))
                 output.append(tbl)
                 output.append("")
+            # The bottom-most table on this page is the only candidate the next page can
+            # continue. Carried only when the pages are consecutive.
+            prev_page_tail = (max((g for g in page_geometry if g.get("bbox")),
+                                  key=lambda g: g["bbox"][3], default=None)
+                              if page_geometry else None)
     else:
         # Improvement 3: cross-page merge path. Gather text + table geometry for every page first
         # (merge decisions need the next page's tables), then emit with continuations stitched.

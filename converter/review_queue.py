@@ -18,13 +18,22 @@ information needed is semantic. So this is deliberately NOT gated in code.
 ## What this module does
 
 It flags the HIGH-RISK SUBSET for a second-opinion review pass. It NEVER rejects,
-NEVER auto-fixes, and NEVER touches table content — it only annotates. Two triggers
-(over-inclusive on purpose; a false flag costs one review, a missed misbinding ships
-wrong clinical data):
+NEVER auto-fixes, and NEVER touches table content — it only annotates. Two triggers,
+INDEPENDENT — either one alone flags a table (over-inclusive on purpose; a false flag
+costs one review, a missed misbinding ships wrong clinical data):
 
   1. continuation pages — the second+ page of a table broken across a page break,
      where the orphan-fusion failure lives. Signalled by a "(continued)" / ", Continued"
-     marker on the page, or (in the merge path) a table the merger stitched across pages.
+     marker on the page; by a table the merger stitched across pages (merge path); or by
+     page geometry alone — the previous page's table runs to the bottom, this one resumes
+     at the top, with the same column count and column x-edges (convert.py's
+     `geometric_continuation()`).
+
+     The geometric signal is why a table can be flagged with no caption anywhere: most
+     textbooks break a table across a page without printing "(continued)" at all, and a
+     categorical table (ASA physical status, NYHA class) carries no dose token to trip
+     trigger 2 either — so before it existed, that whole class of table was flagged by
+     nothing (issue #14).
   2. dosage / numeric-threshold tables — tables whose cells carry drug-dose or
      cut-off tokens (mg, mL, mg/kg, IU, mEq/L, mmHg, dose ranges). A misbound value
      here is the highest-severity output the pipeline can produce.
@@ -95,7 +104,8 @@ def page_has_continuation_marker(page_text: str) -> bool:
     return bool(_CONTINUATION_RE.search(page_text or ""))
 
 
-def review_reasons(table_md: str, page_text: str, stitched_continuation: bool = False) -> list[str]:
+def review_reasons(table_md: str, page_text: str, stitched_continuation: bool = False,
+                   geometric_continuation: bool = False) -> list[str]:
     """Return the review triggers this table hits (empty = no review needed).
 
     `table_md`            the emitted markdown for the table.
@@ -103,10 +113,21 @@ def review_reasons(table_md: str, page_text: str, stitched_continuation: bool = 
     `stitched_continuation`  True when the caller already knows this table was merged
                           across a page break (merge path) — a definitive continuation
                           signal that does not depend on a textual marker.
+    `geometric_continuation`  True when the page geometry says this table resumes the
+                          previous page's (convert.py's `geometric_continuation()`), which
+                          is the only signal available for a table broken across pages with
+                          no continuation caption printed anywhere.
+
+    The two triggers are independent: either one alone puts the table in the queue.
     """
     reasons: list[str] = []
     if stitched_continuation or page_has_continuation_marker(page_text):
         reasons.append("continuation-page (orphan first row can be fused into the wrong label)")
+    elif geometric_continuation:
+        # Named distinctly so a reviewer can tell a caption-driven flag from a
+        # geometry-driven one — the latter has no printed "(continued)" to check against.
+        reasons.append("continuation-page by geometry, no continuation caption "
+                       "(orphan first row can be fused into the wrong label)")
     if dose_token_count(table_md) >= _DOSE_MIN:
         reasons.append("dosage/threshold values (a value on the wrong row = wrong clinical data)")
     return reasons

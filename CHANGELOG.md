@@ -79,6 +79,61 @@ loose semantic versioning.
   with fuzzy scope is exactly where an agent improvises. Outside contributors default to
   Tier 1. No behaviour changed.
 
+### Fixed
+- **The chapter index no longer scans whatever directory you happened to be in** (#17). Both
+  `citations/textbook_chapter_index.py` and `citations/textbook_ref_lint.py` defaulted their
+  corpus root to `Path(".")`. Run from the repo root, `--rebuild` indexed `converter/`, `docs/`,
+  `figures/`… as if each were a book, wrote a 0-book index and printed `OK` — after which every
+  citation into every book came back UNVERIFIABLE with nothing saying the wrong tree had been
+  scanned. Run from a Windows home directory it died outright on the `Application Data` junction
+  with `PermissionError`, writing nothing.
+
+  The root is now `--textbook-dir`, else `TEXTBOOK_DIR`, else this repo's own `output/` when it
+  exists, and the command **refuses** rather than falling back to the working directory. A
+  rebuild that recognises no book at all exits 2 without writing (`--allow-empty` overrides), the
+  summary line names the root it actually scanned, and an unreadable subdirectory is skipped and
+  counted instead of aborting the run. `workflows/note-writing.md` documents the commands with
+  the corpus named, since its bare form is what led into this.
+
+- **A book this repo's own converter chapter-split is now recognised, and says why it cannot be
+  verified** (#15). `convert.py` writes `ch01_Introduction.md`, `ch02_…` — and **that number is a
+  split-point counter, not the book's printed chapter number** (`ch_num = idx + 1`, over
+  `detect_chapters()` hits or level-1 *and* level-2 bookmarks). No index strategy matched the
+  shape, so every book converted through `--batch-dir` recorded `strategy: "none"` and every
+  citation into it returned "no machine-readable chapter structure (sliced by page or by
+  section)" — inaccurate, and with no way forward.
+
+  Such a book is now `strategy: "seq"`, carrying its sequence→title table, and a citation into it
+  reports which *file* the cited number lands on and names `_chapter_index.chapters.json`, a new
+  optional hand-written `{book: {chapter: title}}` file that pins the real chapter table and makes
+  the book check normally. **The `chNN` number is still never read as a chapter number** — doing
+  that would hand back a confidently wrong chapter table for any book whose bookmarks include
+  sub-sections, which is precisely the failure `textbook_ref_lint.py`'s `FILE_INDEX` verdict
+  exists to catch.
+
+### Changed
+- **The review queue's continuation trigger is geometric, not textual** (#14). It fired on a
+  `(Continued)` caption in the page text, or on a table the merger stitched — and the merger is
+  `T2N_TABLE_MERGE=1`, default OFF. A textbook that simply runs a table past a page break without
+  printing a continuation caption — most of them — was therefore invisible to it, leaving the
+  dosage trigger as the only cover. A purely categorical clinical table (ASA physical status,
+  NYHA class, Mallampati) carries no dose token, so it was monitored by **nothing**: the reported
+  case is Morgan & Mikhail 7e's ASA table across pages 477→478, coming out with every class label
+  one row from its definition, in a grid clean enough that the structural QC gate had no
+  complaint.
+
+  With `T2N_REVIEW_QUEUE=1`, a table is now flagged as a continuation when the page geometry says
+  so — previous page's table running to the bottom, this one resuming at the top, same column
+  count, column x-edges within tolerance — using the merge path's own `TABLE_MERGE_*` constants
+  and working with the merger off. Still flag-only: nothing is stitched, reordered or repaired,
+  and the reason string names geometry so a reviewer can tell it from a caption-driven flag.
+  `T2N_REVIEW_QUEUE` stays default OFF and output with it unset is byte-identical.
+
+  `docs/table-review.md` also stops implying the two triggers are an intersection. They have
+  always been independent in code (`review_reasons()` returns a reason for either); the pilot
+  measured its 1-in-6 rate *on* the continuation×dose intersection, which is a sampling fact, not
+  a trigger condition — and reading it as one is what left this class of table uncovered.
+
 ## [0.7.1] — 2026-08-19 — A check that asks a model cannot be the one that blocks
 
 ### Changed
