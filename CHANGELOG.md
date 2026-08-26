@@ -8,7 +8,7 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
-## [Unreleased] — the behaviour contract moves into the repo
+## [0.7.2] — 2026-08-26 — A silent wrong answer is worse than a refusal
 
 ### Added
 - **`openspec/` — the tool's behaviour contract, written down.** Four domain specs
