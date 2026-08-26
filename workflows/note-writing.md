@@ -462,14 +462,26 @@ to your own tool, but keep the underlying discipline:
   Check before you write, and again over the finished note:
 
   ```bash
-  python {REPO}/citations/textbook_chapter_index.py --rebuild      # once per corpus change
-  python {REPO}/citations/textbook_ref_lint.py --refs "ElMiedany Ch.5"
-  python {REPO}/citations/textbook_ref_lint.py "<note.md>"
+  export TEXTBOOK_DIR="<your converted corpus>"   # or pass --textbook-dir to each command
+  python {REPO}/citations/textbook_chapter_index.py --textbook-dir "$TEXTBOOK_DIR" --rebuild
+  python {REPO}/citations/textbook_ref_lint.py --textbook-dir "$TEXTBOOK_DIR" --refs "ElMiedany Ch.5"
+  python {REPO}/citations/textbook_ref_lint.py --textbook-dir "$TEXTBOOK_DIR" "<note.md>"
   ```
 
-  Exit 1 = a reference is provably wrong. **Exit 3 = unverifiable** (book
-  not converted, or only partly converted) — that is not a pass; confirm it
-  yourself before the claim ships.
+  Name the corpus. With neither flag nor env var the commands fall back to
+  this repo's own `output/` and refuse outright if that does not exist —
+  they never scan the current working directory, which used to produce a
+  cheerful 0-book index from wherever the command happened to be run.
+
+  Exit 1 = a reference is provably wrong. **Exit 2 = no corpus to check
+  against.** **Exit 3 = unverifiable** (book not converted, or only partly
+  converted) — that is not a pass; confirm it yourself before the claim ships.
+
+  A book this repo's converter chapter-split itself is reported as
+  *sequence-split*: its `chNN_` numbers are the converter's split counter,
+  not the book's printed chapter numbers, so no citation into it can be
+  verified until you write the real chapter table into
+  `_chapter_index.chapters.json` beside the corpus.
 
 ## Self-check before writing the file
 
