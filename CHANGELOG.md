@@ -8,6 +8,17 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [Unreleased] — suggested next version: 0.7.4
+
+### Changed
+- **`AGENTS.md` shortened (17.4 KB → 11.6 KB)** so the instruction file fits agents that cap
+  the combined instruction chain at 32 KiB. The long passages — the profile-C indexer note,
+  the `requirements.txt` coverage list, the environment-variable list, the full OCR
+  procedure (Step 4.5), the indexer prerequisites (Step 5), skill placeholder substitution
+  (Step 6), the note-workflow walkthrough (Step 7) and the format-hook note (Step 8) — moved
+  verbatim to the new `docs/setup-details.md`; each step keeps a short summary plus a link.
+  No behaviour changed.
+
 ## [0.7.3] — 2026-11-03 — The citation lint runs outside this repo again
 
 ### Fixed
