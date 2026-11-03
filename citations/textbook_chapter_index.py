@@ -44,7 +44,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from shared.config import OUTPUT_DIR  # noqa: E402
+try:
+    from shared.config import OUTPUT_DIR  # noqa: E402
+except ModuleNotFoundError as e:  # the copy vendored into note-supplement has no converter
+    if e.name != "shared":
+        raise
+    OUTPUT_DIR = None
 
 INDEX_NAME = "_chapter_index.json"
 ALIASES_NAME = "_chapter_index.aliases.json"
@@ -52,7 +57,7 @@ CHAPTERS_NAME = "_chapter_index.chapters.json"
 
 NO_ROOT_MSG = (
     "no textbook corpus to scan: pass --textbook-dir PATH, or set TEXTBOOK_DIR, "
-    "or convert some books so this repo's output/ directory exists"
+    "or (textbook-to-note) convert some books so its output/ directory exists"
 )
 
 
@@ -68,7 +73,7 @@ def default_root() -> Path | None:
     env = os.environ.get("TEXTBOOK_DIR", "").strip()
     if env:
         return Path(env).expanduser()
-    return OUTPUT_DIR if OUTPUT_DIR.is_dir() else None
+    return OUTPUT_DIR if OUTPUT_DIR is not None and OUTPUT_DIR.is_dir() else None
 
 
 def resolve_root(textbook_dir: str | None) -> Path | None:

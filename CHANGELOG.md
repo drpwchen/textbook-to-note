@@ -8,6 +8,16 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [0.7.3] — 2026-11-03 — The citation lint runs outside this repo again
+
+### Fixed
+- **`citations/textbook_chapter_index.py` can be copied out of this repo again.** 0.7.2 made it
+  import `shared.config` for the default `output/` directory, so the byte-identical copy in
+  [note-supplement](https://github.com/drpwchen/note-supplement) could not even be imported.
+  When `shared/` is not there, the default `output/` fallback is simply skipped (an explicit
+  `--textbook-dir` or `TEXTBOOK_DIR` still works); any other import error is still raised.
+  Behaviour inside this repo is unchanged.
+
 ## [0.7.2] — 2026-08-26 — A silent wrong answer is worse than a refusal
 
 ### Added
