@@ -1932,10 +1932,12 @@ def strip_epub_noise(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text)
 
 
-def convert_epub(epub_path: str, out_dir: Path, label: str = "") -> dict:
+def convert_epub(epub_path: str, out_dir: Path, label: str = "",
+                 clear_stale: bool = False) -> dict:
     """Convert an epub to searchable markdown (full_text.md + chapter files).
     Uses pandoc for text, recovers headings if pandoc emits none, then chapter-splits.
-    epubs are reflowable -> no <!-- page N --> markers (page metadata = 0 downstream)."""
+    epubs are reflowable -> no <!-- page N --> markers (page metadata = 0 downstream).
+    clear_stale: remove old split files after full_text.md is written (--batch-dir only)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     ft = out_dir / "full_text.md"
     label = label or out_dir.name
@@ -1957,6 +1959,8 @@ def convert_epub(epub_path: str, out_dir: Path, label: str = "") -> dict:
     header = f"<!-- BOOK: {label} -->\n<!-- SOURCE: epub (chapter-based, no page numbers) -->\n\n"
     ft.write_text(header + text, encoding="utf-8")
 
+    if clear_stale:
+        clear_stale_split_files(out_dir)
     chapters = split_epub_by_headings(text, out_dir, label)
     words = len(text.split())
     return {
@@ -1964,6 +1968,47 @@ def convert_epub(epub_path: str, out_dir: Path, label: str = "") -> dict:
         "chapters": chapters or 0, "words": words,
         "size_kb": round(len(text.encode("utf-8")) / 1024, 1),
     }
+
+
+_STALE_SPLIT_RES = (
+    re.compile(r'^ch\d{2,}[a-z]?(_[A-Za-z0-9_]*)?\.md$'),  # bookmark / pattern / EPUB split
+    re.compile(r'^pages_\d{4}-\d{4}\.md$'),               # _force_split
+)
+
+
+def clear_stale_split_files(out_dir: Path) -> list:
+    """Remove a re-converted book's previous split files before the new split writes.
+
+    Only names the converter's own splitters produce, only directly in `out_dir` (no recursion,
+    no symlinks), and only when `out_dir` is a direct child of OUTPUT_BASE. Direct delete: the
+    files are superseded and regenerable from full_text.md. `T2N_CLEAR_STALE_CHAPTERS=0`
+    disables it. Returns the removed names (sorted) and prints them on one line.
+    """
+    if os.environ.get("T2N_CLEAR_STALE_CHAPTERS", "1") == "0":
+        return []
+    try:
+        base = Path(OUTPUT_BASE).resolve()
+        target = Path(out_dir).resolve()
+    except OSError as e:
+        print(f"    [warn] stale-chapter clear skipped for {out_dir}: {e}", flush=True)
+        return []
+    if target.parent != base or Path(out_dir).is_symlink():
+        print(f"    [warn] stale-chapter clear skipped: {out_dir} is not a book directory "
+              f"directly under {base}", flush=True)
+        return []
+    removed = []
+    with os.scandir(target) as it:
+        for entry in it:
+            if entry.is_symlink() or not entry.is_file(follow_symlinks=False):
+                continue
+            if any(rx.match(entry.name) for rx in _STALE_SPLIT_RES):
+                os.remove(entry.path)
+                removed.append(entry.name)
+    removed.sort()
+    if removed:
+        print(f"    [clear] {target.name}: removed {len(removed)} old split file(s): "
+              + ", ".join(removed), flush=True)
+    return removed
 
 
 def _force_split(content: str, out_dir: Path, total_pages: int):
@@ -2352,6 +2397,7 @@ def batch_dir_convert(root_dir: Path, force: bool = False, force_surya: bool = F
                 # Try chapter split on Surya output — numbered-heading pattern often survives OCR
                 try:
                     content = full_text_path.read_text(encoding='utf-8')
+                    clear_stale_split_files(out_dir)
                     chapters = split_into_chapters(content, out_dir, stats["pages"], pdf_path=str(pdf))
                     if chapters:
                         print(f"    chapters detected: {len(chapters)}", flush=True)
@@ -2372,13 +2418,14 @@ def batch_dir_convert(root_dir: Path, force: bool = False, force_surya: bool = F
             label = pdf.stem.replace('_', ' ').replace('-', ' ')
             out_dir.mkdir(parents=True, exist_ok=True)
             if is_epub:
-                stats = convert_epub(str(pdf), out_dir, label)
+                stats = convert_epub(str(pdf), out_dir, label, clear_stale=True)
                 print(f"  [{converted + 1}/{len(all_pdfs)}] {pdf.name}: epub, {stats['chapters']} chapters, {stats['words']} words", flush=True)
             else:
                 stats = convert_pdf(str(pdf), str(full_text_path), label)
 
                 # Chapter split (prefer PDF bookmarks, fallback to pattern detection)
                 content = full_text_path.read_text(encoding='utf-8')
+                clear_stale_split_files(out_dir)
                 split_into_chapters(content, out_dir, stats["pages"], pdf_path=str(pdf))
                 # The source PDF is never written: detected chapters stay in the md output only.
 

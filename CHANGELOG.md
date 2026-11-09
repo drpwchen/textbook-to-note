@@ -8,6 +8,26 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [0.7.6] — 2026-11-09 — Re-conversion no longer leaves old chapter files behind
+
+### Fixed
+- **`--batch-dir` re-conversion kept chapter files the new split no longer produces.** New
+  chapter files overwrote old ones by name only, so a chapter that disappeared from the split
+  (for example every empty file 0.7.5 stops writing) stayed on disk and kept being indexed.
+  After `full_text.md` has been rewritten successfully — fitz, Surya and EPUB paths, whether the
+  re-conversion came from `--force` or from the source being newer than `full_text.md` — the
+  book's previous split files are deleted before the new split writes. Only names the
+  converter's own splitters produce (`^ch\d{2,}[a-z]?(_[A-Za-z0-9_]*)?\.md$`,
+  `^pages_\d{4}-\d{4}\.md$`), only directly in `OUTPUT_BASE/<book>/` (no recursion, no
+  symlinks; any other directory is refused with a warning). A failed conversion and a skipped
+  book are left untouched. The run log prints the removed names, one line per book; files are
+  deleted directly, since they are regenerable from `full_text.md`.
+  Measured on the existing corpus: across 403 book folders no file starting with `ch`/`pages`
+  falls outside the patterns and `full_text.md` is never matched; re-splitting 39 bookmarked
+  books shows a re-conversion would have left 1,214 stale files, all without text (1,208 empty,
+  6 page-marker-only). Kill switch `T2N_CLEAR_STALE_CHAPTERS=0` restores the 0.7.5 behaviour.
+  New test: `converter/test_clear_stale_chapters.py` (27 checks).
+
 ## [0.7.5] — 2026-11-09 — No more empty chapter files from same-page bookmarks
 
 ### Fixed

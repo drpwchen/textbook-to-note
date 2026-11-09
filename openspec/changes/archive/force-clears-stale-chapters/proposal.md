@@ -55,3 +55,6 @@ split no longer produces.
 1. **Yes**: also clear on the mtime-triggered re-conversion, not only `--force`.
 2. **Included here**: the EPUB splitter (`convert_epub` → `split_epub_by_headings`) uses the same `chNN_` naming and gets the same clear.
 3. **Names in the run log, one line per book** (deletion is direct and unrecoverable).
+4. (implementation, 2026-11-09) The `ch` pattern gains an optional lowercase letter after the
+   digits: `split_epub_by_headings` names `Chapter 12a` as `ch12a_*.md`, which the approved
+   pattern would have left behind. Changed in the delta spec before the code.

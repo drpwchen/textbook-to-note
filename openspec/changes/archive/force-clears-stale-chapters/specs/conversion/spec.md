@@ -9,7 +9,8 @@ the source being newer than `full_text.md`), the system SHALL,
 after `full_text.md` has been written successfully and before the chapter split writes, remove
 from that book's output directory every file whose name matches the converter's split naming:
 
-- `^ch\d{2,}(_[A-Za-z0-9_]*)?\.md$` (bookmark / pattern split, incl. `ch00_Front_Matter.md`)
+- `^ch\d{2,}[a-z]?(_[A-Za-z0-9_]*)?\.md$` (bookmark / pattern / EPUB split, incl.
+  `ch00_Front_Matter.md`; the optional letter covers EPUB `Chapter 12a` → `ch12a_*.md`)
 - `^pages_\d{4}-\d{4}\.md$` (`_force_split`)
 
 Removal is a direct delete (`os.remove`); the run log prints the removed file names, one line
