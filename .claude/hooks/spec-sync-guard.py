@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -159,6 +160,37 @@ def run_git_hook(msg_file: str) -> int:
     return verdict(staged)
 
 
+_PATH = r"""("[^"]+"|'[^']+'|[^\s;&|]+)"""
+_GIT_C_RE = re.compile(r"\bgit\s+-C\s+" + _PATH + r"[^;&|]*?\bcommit\b")
+_CD_RE = re.compile(r"(?:^|[;&|]\s*|\(\s*)(?:cd|pushd|Set-Location)\s+" + _PATH)
+
+
+def _unquote(p: str) -> str:
+    return p[1:-1] if p[:1] in "\"'" and p[-1:] == p[:1] else p
+
+
+def _command_dir(command: str, start: str) -> str:
+    """The directory the `git commit` in `command` runs in: its `git -C <dir>`, else the
+    last `cd <dir>` before it, else `start` (the session's cwd)."""
+    head = command[: command.find("git commit")] if "git commit" in command else command
+    m = _GIT_C_RE.search(command)
+    if m:
+        path = _unquote(m.group(1))
+    else:
+        cds = _CD_RE.findall(head)
+        if not cds:
+            return start
+        path = _unquote(cds[-1])
+    path = os.path.expanduser(path)
+    if os.name == "nt" and re.match(r"^/[a-zA-Z]/", path):  # Git Bash /c/Users -> C:/Users
+        path = path[1] + ":" + path[2:]
+    return path if os.path.isabs(path) else os.path.join(start, path)
+
+
+def _norm(p: str) -> str:
+    return os.path.normcase(os.path.realpath(p))
+
+
 def run_claude_hook() -> int:
     """Claude Code PreToolUse entry point. See run_git_hook for its loading caveat."""
     try:
@@ -172,7 +204,19 @@ def run_claude_hook() -> int:
     if BYPASS_TOKEN in command:
         return 0
 
-    repo = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    start = payload.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    target = _command_dir(command, start)
+    try:
+        repo = git("rev-parse", "--show-toplevel", cwd=target).strip()
+        own = git("rev-parse", "--show-toplevel", cwd=os.path.dirname(os.path.abspath(__file__))).strip()
+    except Exception:
+        return 0
+    # The session may be rooted here while the command commits in another repository
+    # (`git -C ../other commit`, `cd ../other && git commit`). That repository's staged
+    # files are not ours to judge (2026-11-09: two obsidian-vault-search commits were
+    # blocked by this repo's rule). Only guard commits that land in this repository.
+    if _norm(repo) != _norm(own):
+        return 0
 
     try:
         staged = [x for x in git("diff", "--cached", "--name-only", cwd=repo).splitlines() if x]
