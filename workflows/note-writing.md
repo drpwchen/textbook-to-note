@@ -93,6 +93,18 @@ have different scope). If they are genuinely in conflict:
    disagreement between two authoritative sources is itself high-value
    information; note both positions with their respective grading
 
+**A retired or superseded guideline is written into the note, not only
+mentioned in chat.** When the corpus marks a guideline as superseded, or a
+newer edition from the same body exists, add the status after its entry in
+the note's Guidelines reference list and after every inline citation that
+leans on it (e.g. `— ⚠️ superseded by <body year>`). A reader who opens the
+note months later never sees the chat.
+
+If your search index carries a source-type field (guideline vs textbook),
+filter guidelines by that field rather than by a folder or book name: a
+folder-name filter that does not match the index's own value returns zero
+results without an error.
+
 **Exclude non-primary sources from the draft.** If your vault or corpus
 contains informal materials — shared study notes, presentation decks,
 crowd-sourced summaries — these must never be used as a source or citation
@@ -204,7 +216,17 @@ Design pattern for any such stage:
    backed service, cross-check its citations against primary sources rather
    than accepting them at face value; if it's a database lookup, the
    response is authoritative by construction and doesn't need the same
-   verification step
+   verification step. When verifying citations:
+   - A DOI that CrossRef does not know is **not yet fabricated** — CrossRef
+     only holds CrossRef-registered DOIs. Check PubMed (`"<doi>"[aid]`) and
+     DataCite before calling it fabricated; if those cannot be reached, the
+     citation is unverifiable, not fake
+   - A number that is real but belongs to a different paper (a review
+     quoting a trial) is cited **via the primary paper** with the number the
+     original reports — never via the review. If the primary cannot be
+     traced, the review may be cited only labelled as a secondary source
+   - An unverifiable citation, and the claims resting on it, are not
+     written into the note
 4. Integrate results **inline** into the relevant sub-sections (a bullet
    gets its evidence/rule directly underneath it) — not only in a separate
    summary table. A summary table, if you build one, should be a
@@ -381,11 +403,13 @@ section it actually belongs to.
 3. **Reconcile content**:
    - Exact duplicate of what the new draft already says → drop the old
      version
-   - Old note has it, new draft doesn't → keep the old point, marked as
-     coming from the existing note with no source citation
-   - Conflict (same topic, different claim) → the textbook-sourced version
-     wins, unless the old content is clearly a first-hand/personal
-     observation, in which case keep it and label it as such
+   - Old note has it, new draft doesn't → search the corpus for a source
+     first; found → add the citation. Not found → keep the point with an
+     explicit "existing note, no source" marker (the one uncited form the
+     self-check accepts)
+   - Conflict (same topic, different claim) → see *Conflicts between
+     sources* below. A first-hand/personal observation is not a conflict:
+     keep it and label it as such
    - Old note is unstructured prose → rewrite it as nested bullets with
      proper hierarchy
 4. **Merge frontmatter/metadata**: keep the original creation date, update
@@ -393,6 +417,47 @@ section it actually belongs to.
 5. **Show a section-by-section diff** and wait for approval before writing,
    unless your workflow has been explicitly configured for autonomous
    merges
+
+### Conflicts between sources
+
+Which side may replace the other without a human:
+
+| Pair | May the newer side win automatically? |
+|---|---|
+| Newer edition / revision of the **same** book or guideline vs the older one | Yes, low-stakes only, through the gate below |
+| Newer guideline vs a textbook (guideline year ≥ edition year) | Yes, low-stakes only, through the gate below |
+| A **single** primary study (one RCT, one cohort) vs a guideline or textbook consensus | **Never.** Write both side by side and let a human decide |
+| Older guideline vs newer textbook; two independent textbooks; anything else | Never |
+
+"A newer RCT beats the textbook" is deliberately not a rule: one trial does
+not overturn a consensus that several trials built.
+
+**Stakes.** High = doses, thresholds/cut-offs, contraindications, red
+flags — anything where acting on the wrong value causes harm. Low =
+epidemiology, history, nomenclature, background.
+
+**Automatic replacement gate.** A replacement applies on its own only when
+all four hold:
+1. Low stakes
+2. The new value has an exact page (the page marker right above it in the
+   corpus file you actually read, or the PDF page you opened). A search
+   hit's page range is not enough — it usually spans a whole chapter
+3. The new value does not come from a table carrying a table flag (see
+   *Flagged tables* under Writing-style guidance)
+4. Same clinical question and same population (adult vs pediatric, acute vs
+   chronic, setting)
+
+When it applies, keep the old value struck through with its citation and
+the date — nothing is deleted. When any condition fails, write both claims
+verbatim in an inline "unresolved conflict" block with both citations and
+the date. High-stakes blocks carry no recommendation line: a suggested
+winner turns the review into a rubber stamp.
+
+**Cap the review queue.** Surface at most ~5 high-stakes conflicts per run
+for the user to decide. Over the cap, do not write the new value inline at
+all: leave the existing value untouched, record the deferred conflict (an
+errata log works well — see Writing-style guidance), and hold back any new
+content that depends on the contested fact until it is resolved.
 
 ### Orphaned attachment recovery (optional, recommended)
 
@@ -442,6 +507,23 @@ to your own tool, but keep the underlying discipline:
   immediately actionable** — a reader should be able to act from it without
   needing to open the source material. Put the decision tree first, before
   supporting detail.
+- **Flagged tables are not citable data until checked.** A table the
+  converter flagged (`<!-- ⚠️ table structure unverified … -->` or
+  `<!-- ⚠️ table needs out-of-band review … -->`, right under the
+  `**[Table on page N]**` line) may have a value bound to the wrong row.
+  The flag appears once at the table's start, so a search hit from the
+  middle of the table will not show it — go back to the table's opening
+  line. Before using a value: open PDF page N and compare. Match → cite it
+  with the page. Mismatch → write the PDF's value. Cannot check → mark the
+  value as unverified with its page; a high-stakes value (dose, threshold,
+  contraindication) that cannot be checked is not written at all. A
+  flagged-table value never replaces an existing value automatically.
+- **Keep an errata log.** When a note or the corpus turns out to be wrong
+  (a misbound table value, a wrong chapter reference, a citation that fails
+  verification, a deferred high-stakes conflict), append one line to an
+  append-only log (e.g. JSON Lines: id, date, kind, source, wrong value,
+  correct value, how verified, other notes citing the same source, status).
+  Before editing a note, check the log for open entries about it.
 - **No unresolved citation placeholders.** Before finalizing, check the
   draft doesn't contain any "citation pending" / "metadata unavailable"
   style placeholder text.
@@ -486,13 +568,19 @@ to your own tool, but keep the underlying discipline:
 ## Self-check before writing the file
 
 1. No informal/non-primary-source content entered the draft
-2. Every claim traces to a cited primary source; any agent-added fact is
-   marked as inferred
+2. Every claim traces to a cited primary source; the only uncited content
+   carries one of two explicit markers — agent-inferred, or existing-note
+   content with no source found
 3. No nested bullets containing tables (most notes tools won't render that)
 4. Figures were QC-gated (Phase 3.5), not hand-embedded unverified
 5. `textbook_ref_lint.py` run over the draft: every chapter reference either
    resolves, or you confirmed the unverifiable ones by hand
-6. If your notes tool has an automated format-lint hook, run it and resolve
+6. Every value taken from a flagged table was checked against its PDF page
+   or marked unverified; no unchecked high-stakes table value was written
+7. No single primary study replaced a guideline or textbook value; every
+   automatic replacement passed all four gate conditions; high-stakes
+   conflicts over the cap were deferred, not written inline
+8. If your notes tool has an automated format-lint hook, run it and resolve
    every failure before writing — treat it as a mechanical pre-flight check,
    not a substitute for the judgment checks above
 

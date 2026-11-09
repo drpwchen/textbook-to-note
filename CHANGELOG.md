@@ -8,6 +8,28 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [0.7.7] — 2026-11-09 — Note-writing rules for conflicts, flagged tables and citation checks
+
+### Changed
+- **`workflows/note-writing.md` now says what to do when sources disagree.** A table of which
+  side may replace the other without a human (newer edition or newer guideline: low-stakes
+  only, through a four-condition gate; a single primary study never overrides a guideline or
+  textbook consensus), what counts as high stakes (doses, cut-offs, contraindications, red
+  flags), how a replacement is written (old value struck through with its citation, never
+  deleted), and a cap of about five high-stakes conflicts per run, beyond which the new value
+  is deferred to an errata log instead of written inline.
+- **Values from a flagged table are not citable until checked** against the PDF page the
+  converter names; an uncheckable high-stakes value is not written at all. The flag sits once
+  at the table's start, so a search hit from the middle of a table must be traced back to it.
+- **Citation checks**: a DOI unknown to CrossRef is checked in PubMed and DataCite before it
+  is called fabricated; a number quoted by a review is cited via the primary paper.
+- **Retired guidelines** are marked in the note itself (`⚠️ superseded by …`), and guideline
+  filtering uses the index's source-type field, not a folder name.
+- Merging into an existing note: an uncited old point is searched for a source first; the
+  self-check accepts exactly two uncited markers (agent-inferred, existing note without source)
+  and gains two items (flagged-table values, conflict gate).
+- Documentation only — no converter behaviour changes.
+
 ## [0.7.6] — 2026-11-09 — Re-conversion no longer leaves old chapter files behind
 
 ### Fixed
