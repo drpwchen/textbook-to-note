@@ -1748,16 +1748,25 @@ def split_by_bookmarks(content: str, out_dir: Path, bookmarks: list):
     if len(chapters) < 2:
         return None
 
+    # Same-page merge (default ON; T2N_SPLIT_SAME_PAGE_MERGE=0 restores the old output).
+    # Bookmarks resolving to the same split line used to yield an empty chapter file; now
+    # only the last of such a run is written, under its original idx+1 number (gaps expected).
+    # Files with no text besides page markers are not written either.
+    merge = os.environ.get('T2N_SPLIT_SAME_PAGE_MERGE', '1') != '0'
+
     # Write front matter
     front_end = chapters[0][1]
     front = '\n'.join(lines[:front_end]).strip()
-    if front:
+    if front and not (merge and not _has_text_outside_page_markers(front)):
         (out_dir / 'ch00_Front_Matter.md').write_text(front, encoding='utf-8')
 
     # Write each chapter
     for idx, (pg, line_start, title) in enumerate(chapters):
         line_end = chapters[idx + 1][1] if idx + 1 < len(chapters) else len(lines)
         ch_content = '\n'.join(lines[line_start:line_end])
+        # line_end < line_start (out-of-order bookmark) is deliberately left as before.
+        if merge and line_end >= line_start and not _has_text_outside_page_markers(ch_content):
+            continue
 
         ch_num = idx + 1
         safe_title = re.sub(r'[^a-zA-Z0-9_ ]', '', title)[:50].strip().replace(' ', '_')
@@ -1765,6 +1774,15 @@ def split_by_bookmarks(content: str, out_dir: Path, bookmarks: list):
         (out_dir / fname).write_text(ch_content, encoding='utf-8')
 
     return chapters
+
+
+_PAGE_MARKER_LINE_RE = re.compile(r'^\s*<!-- page \d+ -->\s*$')
+
+
+def _has_text_outside_page_markers(text: str) -> bool:
+    """True if `text` has ≥1 non-whitespace character on a line that is not a page marker."""
+    return any(line.strip() for line in text.split('\n')
+               if not _PAGE_MARKER_LINE_RE.match(line))
 
 
 def split_into_chapters(content: str, out_dir: Path, total_pages: int, pdf_path: str = None):

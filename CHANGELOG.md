@@ -8,6 +8,24 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [0.7.5] — 2026-11-09 — No more empty chapter files from same-page bookmarks
+
+### Fixed
+- **Bookmark split wrote a 0-byte chapter file for every bookmark sharing a page with the
+  next one** (typically a Part bookmark and its first chapter). Across the existing corpus
+  that was 5,046 of 22,461 chapter files. Such bookmarks now collapse into one split point and
+  only the file with content is written; a file with no text besides `<!-- page N -->` markers
+  is not written either. Surviving files keep their exact name and bytes — sequence numbers are
+  not renumbered, so `chNN` has gaps — which keeps `_chapter_index.chapters.json` and the
+  `seq` chapter-index strategy valid. No text moves between files.
+  Measured by re-splitting 37 real books (old vs new splitter on the same `full_text.md` and
+  PDF bookmarks): 3,424 → 2,198 files, 1,220 empty + 7 marker-only files gone, 0 surviving
+  files changed, 0 dropped files had text; the one remaining empty file comes from an
+  out-of-order bookmark, which this release deliberately leaves alone.
+  Kill switch `T2N_SPLIT_SAME_PAGE_MERGE=0` restores the 0.7.4 output byte for byte (37/37).
+  Books already on disk change only when re-split. New test:
+  `converter/test_split_same_page.py` (19 checks).
+
 ## [0.7.4] — 2026-11-09 — The converter no longer writes to your PDFs
 
 ### Fixed

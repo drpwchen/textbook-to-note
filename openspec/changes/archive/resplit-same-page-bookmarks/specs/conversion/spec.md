@@ -19,7 +19,8 @@ disables it.
   marker and ends before the page-30 marker, and `ch03_Chapter_2_Balance.md` exists
 
 #### Scenario: No empty chapter file is written
-- **GIVEN** any book split by bookmarks with the behaviour on
+- **GIVEN** any book split by bookmarks with the behaviour on, whose level-1/2 bookmark pages
+  never decrease (out-of-order bookmarks are out of scope, see the negative constraints)
 - **WHEN** the split finishes
 - **THEN** every written `ch*.md` has a size > 0 bytes **and** at least 1 non-whitespace
   character outside `<!-- page N -->` lines
