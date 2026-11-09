@@ -48,7 +48,7 @@ python {REPO}/converter/convert.py "path/to/chapter.pdf"
 # Single file with custom output and label
 python {REPO}/converter/convert.py "path/to/chapter.pdf" "output.md" --book-label "Author Title 2e — Ch32"
 
-# Batch-dir: convert ALL PDFs in a directory tree (auto chapter split + PDF bookmarks)
+# Batch-dir: convert ALL PDFs in a directory tree (auto chapter split; source PDFs are never modified)
 python {REPO}/converter/convert.py --batch-dir "path/to/your/textbook/folder"
 
 # Force re-convert (ignore existing md)
@@ -89,7 +89,6 @@ up `.epub` files automatically.
   chapter split
 - **Chapter-splitting priority**: PDF bookmarks → pattern detection →
   force-split (every 30 pages)
-- Writes PDF bookmarks to source PDFs if none exist
 - **Auto-routes OCR-needed PDFs** to the local OCR engine (GPU). Two
   triggers: (1) a page is scan-only (near-zero extractable characters); (2)
   fitz-silent-failure is detected (see `docs/ocr-ladder.md`). Falls back to

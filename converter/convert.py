@@ -1967,23 +1967,6 @@ def _force_split(content: str, out_dir: Path, total_pages: int):
         (out_dir / fname).write_text(chunk, encoding='utf-8')
 
 
-def add_pdf_bookmarks(pdf_path: str, chapters: list[tuple[int, int, str]]):
-    """Write chapter structure back to PDF as bookmarks if none exist."""
-    try:
-        doc = fitz.open(pdf_path)
-        if doc.get_toc():
-            doc.close()
-            return False  # Already has bookmarks
-        toc = [[1, title[:80], page] for page, _, title in chapters]
-        if toc:
-            doc.set_toc(toc)
-            doc.save(pdf_path, incremental=True, encryption=0)
-        doc.close()
-        return bool(toc)
-    except Exception:
-        return False
-
-
 # === Batch-dir conversion ===
 def load_progress() -> dict:
     if PROGRESS_FILE.exists():
@@ -2354,7 +2337,6 @@ def batch_dir_convert(root_dir: Path, force: bool = False, force_surya: bool = F
                     chapters = split_into_chapters(content, out_dir, stats["pages"], pdf_path=str(pdf))
                     if chapters:
                         print(f"    chapters detected: {len(chapters)}", flush=True)
-                        add_pdf_bookmarks(str(pdf), chapters)
                 except Exception as se:
                     print(f"    [warn] chapter split on Surya output failed: {se}", flush=True)
             except Exception as e:
@@ -2379,11 +2361,8 @@ def batch_dir_convert(root_dir: Path, force: bool = False, force_surya: bool = F
 
                 # Chapter split (prefer PDF bookmarks, fallback to pattern detection)
                 content = full_text_path.read_text(encoding='utf-8')
-                chapters = split_into_chapters(content, out_dir, stats["pages"], pdf_path=str(pdf))
-
-                # Add PDF bookmarks if chapters detected and PDF has none
-                if chapters:
-                    add_pdf_bookmarks(str(pdf), chapters)
+                split_into_chapters(content, out_dir, stats["pages"], pdf_path=str(pdf))
+                # The source PDF is never written: detected chapters stay in the md output only.
 
                 rj = f", {stats['rejected_tables']} page-frame rejected" if stats.get("rejected_tables") else ""
                 print(f"  [{converted + 1}/{len(all_pdfs)}] {pdf.name}: {stats['pages']}p, {stats['tables']}t, {stats['fig_refs']}f{rj}", flush=True)

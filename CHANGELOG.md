@@ -8,7 +8,20 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
-## [Unreleased] — suggested next version: 0.7.4
+## [0.7.4] — 2026-11-09 — The converter no longer writes to your PDFs
+
+### Fixed
+- **`--batch-dir` wrote bookmarks into the user's source PDFs.** When a PDF had no bookmarks
+  and chapter detection found chapters in its text (fitz path or Surya OCR path),
+  `add_pdf_bookmarks()` saved those guessed chapters back into the original file with an
+  incremental save — contradicting the documented promise that source PDFs are never
+  modified, and leaving later runs unable to tell publisher bookmarks from guessed ones.
+  The write-back is removed outright; no flag brings it back. Chapter files in the markdown
+  output are unchanged (old vs new output compared on 3 real books: identical apart from the
+  `Source:` path line). PDFs already modified by an earlier run are not repaired by this
+  release. New test: `converter/test_source_pdf_readonly.py` (sha256 / size / mtime of a
+  bookmark-less PDF on the fitz path, the OCR path and a read-only file; fails 5 of 9 checks
+  against 0.7.3).
 
 ### Changed
 - **`AGENTS.md` shortened (17.4 KB → 11.6 KB)** so the instruction file fits agents that cap
