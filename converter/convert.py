@@ -1754,11 +1754,14 @@ def split_by_bookmarks(content: str, out_dir: Path, bookmarks: list):
     # Files with no text besides page markers are not written either.
     merge = os.environ.get('T2N_SPLIT_SAME_PAGE_MERGE', '1') != '0'
 
+    written = []
+
     # Write front matter
     front_end = chapters[0][1]
     front = '\n'.join(lines[:front_end]).strip()
     if front and not (merge and not _has_text_outside_page_markers(front)):
         (out_dir / 'ch00_Front_Matter.md').write_text(front, encoding='utf-8')
+        written.append('ch00_Front_Matter.md')
 
     # Write each chapter
     for idx, (pg, line_start, title) in enumerate(chapters):
@@ -1772,6 +1775,16 @@ def split_by_bookmarks(content: str, out_dir: Path, bookmarks: list):
         safe_title = re.sub(r'[^a-zA-Z0-9_ ]', '', title)[:50].strip().replace(' ', '_')
         fname = f'ch{ch_num:02d}_{safe_title}.md' if safe_title else f'ch{ch_num:02d}.md'
         (out_dir / fname).write_text(ch_content, encoding='utf-8')
+        written.append(fname)
+
+    # Deep bookmarks -> headings (opt-in, default OFF; unset = byte-identical output).
+    if os.environ.get('T2N_SPLIT_DEEP_HEADINGS', '0') == '1':
+        try:
+            from split_manifest import insert_deep_headings
+        except ImportError:  # imported as a package module
+            from .split_manifest import insert_deep_headings
+        ins, tot = insert_deep_headings(out_dir, written, bookmarks)
+        print(f"    deep headings: {ins}/{tot} inserted", flush=True)
 
     return chapters
 
@@ -2471,7 +2484,31 @@ def main():
     parser.add_argument("--force", action="store_true", help="Re-convert even if md exists")
     parser.add_argument("--force-surya", action="store_true", help="Force Surya OCR for all PDFs in batch-dir (bypass fitz)")
 
+    parser.add_argument("--resplit", metavar="CORPUS",
+                        help="Re-split an existing corpus (full_text.md + PDF outline) into --out; "
+                             "writes _manifest.json per book; never writes to CORPUS or the PDFs")
+    parser.add_argument("--out", metavar="DIR", help="--resplit: new output directory")
+    parser.add_argument("--pdf-root", metavar="DIR", action="append", default=[],
+                        help="--resplit: where source PDFs live (repeatable)")
+    parser.add_argument("--book", metavar="NAME", action="append",
+                        help="--resplit: only this book folder (repeatable)")
+    parser.add_argument("--split-config", metavar="FILE",
+                        help="--resplit: per-book split config (default <out>/_split_config.json)")
+    parser.add_argument("--pdf-map", metavar="FILE",
+                        help="--resplit: JSON {book or book/unit: pdf path} overriding PDF lookup")
+
     args = parser.parse_args()
+
+    if args.resplit:
+        if not args.out or not args.pdf_root:
+            parser.error("--resplit needs --out and at least one --pdf-root")
+        try:
+            from resplit import run as resplit_run
+        except ImportError:
+            from .resplit import run as resplit_run
+        sys.exit(resplit_run(args.resplit, args.out, args.pdf_root, books=args.book,
+                             split_config=args.split_config, pdf_map=args.pdf_map,
+                             force=args.force))
 
     if args.batch_dir:
         batch_dir_convert(Path(args.batch_dir), force=args.force, force_surya=args.force_surya)

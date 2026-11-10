@@ -8,6 +8,44 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [0.8.0] — 2026-11-10 — `--resplit`: re-split a corpus with a per-book manifest and validator
+
+### Added
+- **`convert.py --resplit <corpus> --out <dir> --pdf-root <dir>`** re-splits every book's
+  `full_text.md` by its PDF outline into a new directory, without re-converting. The source
+  corpus and the PDFs are never written (checked by size, mtime and sha256 before and after);
+  an `--out` that overlaps the corpus or a `--pdf-root` is refused with exit 2. `--book` limits
+  the run, `--pdf-map` overrides the PDF lookup, and a re-run resumes. Books without
+  `full_text.md` keep their existing chapter files ("carried"); books shipped as one PDF per
+  chapter are split per PDF. Figure folders are not copied. For a book with no config entry, a
+  resplit writes the same chapter files a conversion would (same-page merge as in 0.7.5).
+- **`_manifest.json` per book**: every file's PDF page range, the real chapter number parsed
+  from the title (never the bookmark's position), `kind` (body / references / front / back),
+  the PDF's own printed page labels when it has them (`page_confidence: printed`, else
+  `pdf_only`), and every outline entry with its page.
+- **Validator** — `python converter/split_manifest.py --validate <dir>` fails a book on an empty
+  file, a page claimed by two files or skipped, chapter numbers out of order or with a gap,
+  a chapter count different from the outline's, or a chapter whose first two pages do not
+  contain its title.
+- **Per-book split config** (`<out>/_split_config.json`): for books whose outline is wrong —
+  which outline level is the chapter, a chapter-number regex, page offset, outline titles to
+  drop or rename, locating chapters by their title in the text when every bookmark points at
+  page 1, per-file number overrides, chapters that really are absent. Every entry needs a
+  `reason`. A book is fixed by its entry, never by loosening a check.
+- **`T2N_SPLIT_DEEP_HEADINGS=1`** (default off; unset output is byte-identical) writes outline
+  entries below the split level into the chapter files as `##` / `###` headings, just above the
+  matching line on that page; entries with no matching line are skipped, nothing is moved.
+
+### Measured
+On the author's corpus (284 books; numbers in the archived change folders): 0-byte chapter files
+5,046 → 0; 283 / 284 books pass the validator (the remaining one has no outline and lost its
+chapter titles to two-column OCR); 47 books needed a config entry. A hand check of 100 random
+chapters found the chapter number right in 99; the miss was a book whose outline, merged from
+per-chapter PDFs, numbered every chapter +7 without failing any check — fixed by its config
+entry.
+With `T2N_SPLIT_DEEP_HEADINGS=1` on the same corpus, 58,385 of 63,406 deeper outline entries
+(92.1%) found their line and became headings; validator results were unchanged.
+
 ## [0.7.7] — 2026-11-09 — Note-writing rules for conflicts, flagged tables and citation checks
 
 ### Changed
