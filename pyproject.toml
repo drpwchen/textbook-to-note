@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "textbook-to-note"
+version = "0.8.1"
+description = "PDF/EPUB textbooks to greppable markdown with page markers, tables and figure references"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+# Same core set as requirements.txt; optional engines (pandoc, Surya, Docling, ollama) stay
+# separate installs, see the comments there.
+dependencies = [
+    "pymupdf>=1.23",
+    "pdfplumber>=0.10",
+    "Pillow>=10.0",
+    "numpy>=1.24",
+]
+
+[project.scripts]
+t2n-convert = "converter.convert:main"
+t2n-post-convert = "converter.post_convert:main"
+t2n-split-validate = "converter.split_manifest:main"
+
+[tool.setuptools]
+# The modules import their siblings by plain name (they put their own folder on sys.path),
+# so the folders are shipped as-is; `pip install -e .` keeps them in this checkout.
+packages = ["converter", "shared", "figures", "citations"]

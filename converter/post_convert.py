@@ -1,47 +1,74 @@
 """
-Post-conversion cleanup, plus an optional hand-off to vault-search.
+Post-conversion: verify, INDEX.md, keep the corpus in step, hand it to vault-search.
 Run AFTER batch-dir conversion completes.
 
 Usage:
-    python post_convert.py          # Full pipeline: verify + INDEX.md + optional figure registry + optional hand-off
+    python post_convert.py          # Full pipeline: verify + INDEX.md + figure registry + resplit + hand-off
     python post_convert.py --verify # Only verify conversion quality
-    python post_convert.py --index [--corpus DIR]  # Only hand DIR (default OUTPUT_DIR) to vault-search
+    python post_convert.py --resplit-only [--corpus DIR]  # Only re-split new / re-converted books into DIR
+    python post_convert.py --index [--corpus DIR]  # Resplit into DIR, link figures, hand DIR to vault-search
+    python post_convert.py --backfill [--corpus DIR]  # Only the hand-off (vault-search re-indexes + audits)
     python post_convert.py --audit  # Only report index coverage (legacy INDEXER_SCRIPT route only)
 
+Flow: OUTPUT_DIR (converted books) --resplit--> CORPUS_DIR (default ./corpus; a t2n-corpus/1
+folder with per-book _manifest.json and a root corpus.json) --vault-search corpus.py add-->
+searchable. A book is re-split when it is new to CORPUS_DIR or its markdown is newer than its
+manifest; its figure folders are linked (not copied) into CORPUS_DIR.
+
 This repo does not index anything. Making a corpus searchable is vault-search's job:
-    python <vault-search>/server/corpus.py add <corpus root>
-where <corpus root> is a `convert.py --resplit` output (it carries corpus.json, format
-t2n-corpus/1). `--index` is a shortcut for that command when VAULT_SEARCH_DIR points at a
-vault-search checkout. INDEXER_SCRIPT (an indexer with an --incremental/--book CLI) still
-works but is deprecated. With neither set, --index prints the command and exits 0.
+    python <vault-search>/server/corpus.py add <CORPUS_DIR>
+`--index` runs that command when VAULT_SEARCH_DIR points at a vault-search checkout
+(VAULT_SEARCH_PY = its interpreter, if different). With nothing set it prints the command
+and exits 0. INDEXER_SCRIPT (an indexer with an --incremental/--book CLI) still works but
+is deprecated; while it is set, the resplit chain is skipped and 0.8.0 behaviour applies.
 The figure-registry step is an optional integration too (FIGURE_REGISTRY_SCRIPT).
 
-Note: missing page markers no longer block indexing. epub (reflowable) and a few
-vector-glyph PDFs index fine with page metadata = 0. audit_index_coverage() is the
-safety net — it backfills any book folder that has md but no rows in the index.
+Exit code: 1 (listing what failed) when a resplit, a figure link or the hand-off fails.
 """
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from shared.config import (OUTPUT_DIR, INDEXER_SCRIPT, VAULT_SEARCH_DIR, VAULT_SEARCH_PY,
-                           FIGURE_REGISTRY_SCRIPT)
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+sys.path.insert(0, str(HERE))
+from shared.config import (OUTPUT_DIR, CORPUS_DIR, PDF_ROOTS, INDEXER_SCRIPT, VAULT_SEARCH_DIR,
+                           VAULT_SEARCH_PY, FIGURE_REGISTRY_SCRIPT)
 
 OUTPUT_BASE = OUTPUT_DIR
 PROGRESS_FILE = OUTPUT_BASE / "batch_progress.json"
+SKIP_DIRS = {"misc", "scripts", "figures_test", "__pycache__", ".drafts"}
+GUIDELINE_DIR = "_Guidelines"
+SOURCE_RE = re.compile(r"^Source: `([^`]+)`", re.M)
+FIGURE_BACKUP_MARKERS = (".bak", "undo")
+
+
+def listed_books(root: Path) -> list[tuple[str, Path]]:
+    """(label, folder) for verification and INDEX.md: every top-level book folder, and each
+    guideline under _Guidelines as its own entry. Other "_"- and "."-folders are tooling."""
+    out = []
+    if not root.is_dir():
+        return out
+    for d in sorted(root.iterdir()):
+        if not d.is_dir() or d.name in SKIP_DIRS:
+            continue
+        if d.name == GUIDELINE_DIR:
+            out += [(f"{GUIDELINE_DIR}/{g.name}", g) for g in sorted(d.iterdir()) if g.is_dir()]
+        elif not d.name.startswith(("_", ".")):
+            out.append((d.name, d))
+    return out
 
 
 def verify_conversion():
     """Check conversion quality across all books."""
     print("=== Verification ===")
 
-    books = [d for d in sorted(OUTPUT_BASE.iterdir())
-             if d.is_dir() and d.name not in {'misc', 'scripts', 'figures_test', '__pycache__'}]
+    books = listed_books(OUTPUT_BASE)
 
     total_books = len(books)
     books_with_pages = 0
@@ -52,7 +79,7 @@ def verify_conversion():
     scan_only = []
     no_chapters = []
 
-    for d in books:
+    for label, d in books:
         md_files = list(d.glob("*.md"))
         if not md_files:
             continue
@@ -85,9 +112,9 @@ def verify_conversion():
             # Only full_text.md, no chapters
             content = md_files[0].read_text(encoding="utf-8", errors="replace")
             if len(content) < 500:
-                scan_only.append(d.name)
+                scan_only.append(label)
             else:
-                no_chapters.append(d.name)
+                no_chapters.append(label)
 
     print(f"Total books: {total_books}")
     print(f"With <!-- page N --> markers: {books_with_pages}")
@@ -120,6 +147,136 @@ def verify_conversion():
             print(f"Scanned PDFs skipped: {len(scans)}")
 
     return books_without_pages == 0
+
+
+def book_folders(root: Path) -> list[Path]:
+    """Top-level folders `--resplit` treats as books (_Guidelines is one of them)."""
+    if not root.is_dir():
+        return []
+    return sorted(d for d in root.iterdir()
+                  if d.is_dir() and d.name not in SKIP_DIRS and not d.name.startswith("."))
+
+
+def _newest_md(d: Path) -> float:
+    return max((f.stat().st_mtime for f in d.rglob("*.md")), default=0.0)
+
+
+def resplit_plan(corpus: Path = None) -> list[tuple[str, bool]]:
+    """(book, force) for every OUTPUT_DIR book whose CORPUS_DIR copy is missing or older.
+    No corpus manifest -> new book (plain resplit); markdown newer than the manifest ->
+    re-converted (force, which rebuilds that book's corpus folder from scratch)."""
+    corpus = Path(corpus) if corpus else CORPUS_DIR
+    plan = []
+    for d in book_folders(OUTPUT_BASE):
+        newest = _newest_md(d)
+        if not newest:
+            continue
+        manifest = corpus / d.name / "_manifest.json"
+        if not manifest.exists():
+            plan.append((d.name, False))
+        elif newest > manifest.stat().st_mtime:
+            plan.append((d.name, True))
+    return plan
+
+
+def pdf_roots_for(book: str) -> list[Path]:
+    """The folder(s) of the book's `Source:` PDF(s) that still exist; else the PDF_ROOTS that
+    exist. Searching only the Source folder keeps a resplit from walking a whole library."""
+    roots = []
+    for f in (OUTPUT_BASE / book).rglob("full_text.md"):
+        with open(f, encoding="utf-8", errors="replace") as fh:
+            m = SOURCE_RE.search(fh.read(2000))
+        if m and Path(m.group(1)).exists():
+            parent = Path(m.group(1)).parent
+            if parent not in roots:
+                roots.append(parent)
+    return roots or [r for r in PDF_ROOTS if r.exists()]
+
+
+def run_resplit(plan, corpus: Path = None) -> list[str]:
+    """Re-split each planned book into the corpus. Returns the books that failed (no
+    manifest afterwards)."""
+    corpus = Path(corpus) if corpus else CORPUS_DIR
+    print(f"\n=== Resplit into {corpus} ===")
+    if not plan:
+        print("  ✓ nothing to resplit (every book is already in the corpus and up to date)")
+        return []
+    import resplit
+    failed = []
+    for book, force in plan:
+        print(f"  [resplit] {book}{' (force: re-converted)' if force else ''} ...", flush=True)
+        try:
+            rc = resplit.run(OUTPUT_BASE, corpus, [str(r) for r in pdf_roots_for(book)],
+                             books=[book], force=force)
+        except Exception as e:  # noqa: BLE001 — one book never aborts the chain
+            print(f"  [FAIL] resplit {book}: {type(e).__name__}: {e}", flush=True)
+            failed.append(book)
+            continue
+        if rc != 0 or not (corpus / book / "_manifest.json").exists():
+            print(f"  [FAIL] resplit {book}: exit {rc}", flush=True)
+            failed.append(book)
+    return failed
+
+
+def figure_dirs(book_dir: Path) -> list[Path]:
+    """figures* / images folders of a converted book, minus backup copies."""
+    return sorted(f for f in book_dir.iterdir()
+                  if f.is_dir() and (f.name.startswith("figures") or f.name == "images")
+                  and not any(m in f.name for m in FIGURE_BACKUP_MARKERS))
+
+
+def _is_link(p: Path) -> bool:
+    is_junction = getattr(p, "is_junction", None)  # Python 3.12+
+    return p.is_symlink() or bool(is_junction and is_junction())
+
+
+def ensure_figure_links(corpus: Path = None, dry_run: bool = False) -> list[str]:
+    """--resplit never copies figures; CORPUS_DIR/<book>/<figures*> links to the OUTPUT_DIR
+    folder instead (one copy of the images). A junction on Windows (no privilege needed), a
+    symlink elsewhere. Re-run after a --force resplit, which rebuilds the book folder (removing
+    a link never touches its target). Returns the links that could not be created."""
+    corpus = Path(corpus) if corpus else CORPUS_DIR
+    print(f"\n=== Figure links ({corpus} -> {OUTPUT_BASE}) ===")
+    made, failed = 0, []
+    for d in book_folders(OUTPUT_BASE):
+        corpus_book = corpus / d.name
+        if not corpus_book.is_dir():
+            continue
+        for f in figure_dirs(d):
+            link = corpus_book / f.name
+            if link.exists() or _is_link(link):
+                continue
+            if dry_run:
+                print(f"  [dry-run] {d.name}/{f.name}")
+                made += 1
+                continue
+            r = None
+            try:
+                if os.name == "nt":
+                    r = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(f)],
+                                       capture_output=True, text=True)
+                    ok = r.returncode == 0 and link.exists()
+                else:
+                    os.symlink(f, link, target_is_directory=True)
+                    ok = link.is_symlink()
+            except OSError as e:
+                ok, r = False, None
+                print(f"  [FAIL] {d.name}/{f.name}: {e}")
+            if not ok:
+                failed.append(f"{d.name}/{f.name}")
+                if r is not None:
+                    print(f"  [FAIL] {d.name}/{f.name}: {(r.stderr or r.stdout).strip()[:120]}")
+            else:
+                made += 1
+    print(f"  {'would create' if dry_run else 'created'} {made}, failed {len(failed)}")
+    return failed
+
+
+def refresh_corpus(corpus: Path) -> list[str]:
+    """resplit_plan -> run_resplit -> ensure_figure_links. Returns failure labels."""
+    failures = [f"resplit: {b}" for b in run_resplit(resplit_plan(corpus), corpus)]
+    failures += [f"figure link: {x}" for x in ensure_figure_links(corpus)]
+    return failures
 
 
 CORPUS_FORMAT_URL = "https://github.com/drpwchen/vault-search/blob/main/docs/corpus-format.md"
@@ -254,9 +411,7 @@ def update_index_md():
     print("\n=== Updating INDEX.md ===")
 
     books = []
-    for d in sorted(OUTPUT_BASE.iterdir()):
-        if not d.is_dir() or d.name in {'misc', 'scripts', 'figures_test', '__pycache__'}:
-            continue
+    for label, d in listed_books(OUTPUT_BASE):
         md_files = list(d.glob("*.md"))
         if not md_files:
             continue
@@ -266,7 +421,7 @@ def update_index_md():
             content = f.read_text(encoding="utf-8", errors="replace")
             total_words += len(content.split())
 
-        books.append((d.name, len(md_files), total_words))
+        books.append((label, len(md_files), total_words))
 
     lines = [
         f"# Textbook-to-Note Index",
@@ -286,21 +441,43 @@ def update_index_md():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Post-conversion cleanup and optional vault-search hand-off")
+    parser = argparse.ArgumentParser(description="Post-conversion: verify, keep the corpus in step, "
+                                                 "hand it to vault-search")
     parser.add_argument("--verify", action="store_true", help="Only verify conversion quality")
+    parser.add_argument("--resplit-only", action="store_true",
+                        help="Only re-split new / re-converted books into the corpus (+ figure links)")
     parser.add_argument("--index", action="store_true",
-                        help="Only hand the corpus to vault-search (server/corpus.py add)")
+                        help="Resplit + figure links, then hand the corpus to vault-search (corpus.py add)")
+    parser.add_argument("--backfill", action="store_true",
+                        help="Only the hand-off (vault-search re-indexes changed files and audits)")
     parser.add_argument("--corpus", metavar="DIR",
-                        help="corpus root for --index (a --resplit output; default OUTPUT_DIR)")
+                        help="corpus root (default CORPUS_DIR, ./corpus)")
     parser.add_argument("--audit", action="store_true",
                         help="Only audit index coverage (legacy INDEXER_SCRIPT route; report, no backfill)")
     args = parser.parse_args()
-    root = Path(args.corpus) if args.corpus else OUTPUT_BASE
+    root = Path(args.corpus) if args.corpus else CORPUS_DIR
+    failures = []
+    handoff_rc = 0
+
+    def handoff():
+        nonlocal handoff_rc
+        handoff_rc = run_indexer(root)
+        if handoff_rc:
+            failures.append(f"vault-search hand-off exited {handoff_rc}")
 
     if args.verify:
         verify_conversion()
+    elif args.resplit_only:
+        failures += refresh_corpus(root)
     elif args.index:
-        sys.exit(run_indexer(root))
+        if not INDEXER_SCRIPT:
+            failures += refresh_corpus(root)
+        handoff()
+    elif args.backfill:
+        if INDEXER_SCRIPT:
+            audit_index_coverage(backfill=True)
+        else:
+            handoff()
     elif args.audit:
         audit_index_coverage(backfill=False)
     else:
@@ -314,10 +491,18 @@ def main():
         if not all_good:
             print("\n[note] some PDF books lack page markers (see above) — indexing anyway; "
                   "re-run conversion on those if search quality is poor.")
-        rc = run_indexer(root)
+        if not INDEXER_SCRIPT:
+            failures += refresh_corpus(root)
+        handoff()
         audit_index_coverage(backfill=True)
-        if rc:
-            sys.exit(rc)
+
+    # A caller (or a scheduled run) must not read "exit 0" as "the new books are in the corpus".
+    if failures:
+        print(f"\n[FAIL] {len(failures)} step(s) failed:")
+        for f in failures:
+            print(f"  - {f}")
+        only_handoff = failures == [f"vault-search hand-off exited {handoff_rc}"]
+        sys.exit(handoff_rc if only_handoff else 1)
 
 
 if __name__ == "__main__":

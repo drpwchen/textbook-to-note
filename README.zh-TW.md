@@ -121,7 +121,7 @@ shared/       環境變數驅動的設定（config.py）
 
 ## 需求
 
-- Python 3.10+，`pip install -r requirements.txt`
+- Python 3.10+，`pip install -r requirements.txt`（或 `pip install -e .`，會多出 `t2n-convert` / `t2n-post-convert` 指令）
 - **純 CPU 是一等公民路徑**（數位原生 PDF，最常見的情況），不需要 GPU
 - 選用（處理掃描書的 OCR 階梯與語意搜尋）：NVIDIA GPU 或 Apple Silicon + [Surya OCR](https://github.com/VikParuchuri/surya)、[ollama](https://ollama.com) 加小視覺模型與 `bge-m3` embeddings，全部本機執行，資料不出你的電腦。抽圖與其 QC 閘門完全不需要這些（0.7.1 起為純計算）。見 [`docs/ocr-ladder.md`](docs/ocr-ladder.md) 的硬體分級表
 - 在 Windows 11 與 macOS 上測試過；Windows 特有的坑都在程式碼裡處理掉了（cp950 subprocess 解碼、路徑操作）

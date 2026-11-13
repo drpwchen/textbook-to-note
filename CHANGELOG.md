@@ -8,13 +8,19 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
-## [0.8.1] — 2026-11-13 — The corpus is the hand-off: this repo no longer talks to an indexer
+## [0.8.1] — 2026-11-13 — The corpus is the hand-off; one converter for public and private use
 
 Semantic search (Profile C) was documented as `INDEXER_SCRIPT` pointing at vault-search with an
 `--incremental` / `--book` CLI. vault-search's current indexer has neither flag, so
 `post_convert.py --index` died with an argparse error, and nothing said the corpus had to be
 re-split first. Now the boundary is a folder: this repo writes a corpus, vault-search indexes it
 with one command. Profiles A and B are unaffected and need no RAG at all.
+
+This release also folds in the fixes the author's private copy of the converter had and this
+repo lacked, so the two no longer need to be kept in sync by hand. On four real PDFs
+(two born-digital textbooks, a clinical guideline, a 30-page scanned excerpt through Surya)
+the private copy and this release produce byte-identical markdown, and byte-identical corpora
+after `post_convert.py --resplit-only`.
 
 ### Added
 - **`--resplit` writes `<out>/corpus.json`** = `{"format": "t2n-corpus/1", "kind": "textbook"}`,
@@ -23,11 +29,38 @@ with one command. Profiles A and B are unaffected and need no RAG at all.
   Written only when absent; an existing `corpus.json` is never overwritten (a different one gets
   a one-line warning on stderr, exit code unchanged), and the source corpus's own `corpus.json`
   is not copied. Every other output file is byte-identical to 0.8.0.
-- **`post_convert.py --index --corpus DIR`**: with `VAULT_SEARCH_DIR` pointing at a vault-search
-  checkout, runs `<VAULT_SEARCH_DIR>/server/corpus.py add DIR` (with `VAULT_SEARCH_PY` if set)
-  and exits with its exit code. `--corpus` defaults to `OUTPUT_DIR`.
+- **`post_convert.py --index` keeps a corpus in step and hands it over.** It re-splits only the
+  books that are new to `CORPUS_DIR` (default `./corpus`; `--corpus DIR` overrides) or whose
+  markdown is newer than their manifest, finding each book's PDF next to its `Source:` path or
+  in `T2N_PDF_ROOTS` (default `BOOKS_DIR`); links the books' figure folders into the corpus
+  (junction / symlink, never a copy); then, with `VAULT_SEARCH_DIR` pointing at a vault-search
+  checkout, runs `<VAULT_SEARCH_DIR>/server/corpus.py add <CORPUS_DIR>` (with `VAULT_SEARCH_PY`
+  if set). `--resplit-only` stops before the hand-off, `--backfill` is the hand-off alone. Any
+  failed step is listed after `[FAIL]` and exits 1 (a failed `corpus.py add` passes its own
+  code through).
+- **`T2N_OCR_GUTTER=1`** (default off; unset = byte-identical) splits OCR'd two-column pages at
+  a measured gutter instead of the page center, for boxed layouts whose gutter sits well off
+  center. Opt-in because the evidence is two pages, not a corpus.
+- **`pyproject.toml`**: `pip install -e .` installs the core dependencies and the
+  `t2n-convert`, `t2n-post-convert` and `t2n-split-validate` commands. `requirements.txt` keeps
+  working.
 
 ### Changed
+- **A book that needs OCR while Surya is not set up now fails the `--batch-dir` run** instead of
+  being skipped: a `[FAIL]` line names the missing `SURYA_VENV_PY` / `SURYA_ADAPTER`, the book
+  is *not* marked completed, and the run exits 1. Before, it was marked completed, so once
+  Surya was installed every later run skipped the book silently. Which PDFs go to OCR is
+  unchanged; the other books in the run convert as before.
+- **One Docling worker per batch run** (`T2N_DOCLING=1`): `--batch-dir` and `--batch` share one
+  warm worker and one GPU lease across all books instead of paying the 4–12 s model load per
+  book. Output is unchanged.
+- **Batch log line** also reports Docling tables, review-queue flags, sideways pages and the
+  reliability flag per book.
+- **`verify` and `INDEX.md` list each guideline** under `_Guidelines/` as its own entry, and
+  no longer list `_Guidelines` (or other `_`-tooling folders) as a book.
+- **`--resplit` no longer copies batch bookkeeping** (`batch_progress.json`,
+  `conversion_summary.json`, `already_converted.json`) found inside a book folder — a guideline
+  run with `OUTPUT_DIR=<output>/_Guidelines` leaves one there.
 - **`--index` with nothing configured** prints `[skip]` and the exact `corpus.py add` command
   to run, exit 0. `VAULT_SEARCH_DIR` set to something that is not a vault-search checkout says
   so instead of silently skipping.
@@ -41,7 +74,8 @@ with one command. Profiles A and B are unaffected and need no RAG at all.
   indexer's `lance_db` / `textbook_chunks`), with a warning on stderr pointing at
   `corpus.py add`. It wins over `VAULT_SEARCH_DIR` while set, so existing setups do not change.
 
-Spec: `openspec/changes/archive/corpus-handoff/`. Tests: `converter/test_corpus_handoff.py`.
+Specs: `openspec/changes/archive/corpus-handoff/`, `openspec/changes/archive/private-upport/`.
+Tests: `converter/test_corpus_handoff.py`, `converter/test_private_upport.py`.
 
 ## [0.8.0] — 2026-11-13 — `--resplit`: re-split a corpus with a per-book manifest and validator
 

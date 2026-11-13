@@ -75,6 +75,8 @@ through `fitz` alone and never touch it.
 pip install -r requirements.txt
 ```
 
+(`pip install -e .` from the clone does the same and also puts `t2n-convert`,
+`t2n-post-convert` and `t2n-split-validate` on `PATH`.)
 `requirements.txt` covers **only** the core converter. EPUB needs the `pandoc`
 CLI; `requests`, `lancedb` and the OCR (Surya) venv are separate installs, and
 it never gives the user semantic search. Details:
@@ -173,7 +175,8 @@ the root `corpus.json` (format `t2n-corpus/1`,
 [spec](https://github.com/drpwchen/vault-search/blob/main/docs/corpus-format.md))
 that `corpus.py` checks. `corpus.py add` validates, indexes, audits and
 prints the env line to set. `python converter/post_convert.py --index
---corpus <CORPUS_ROOT>` is a shortcut for the last line when
+--corpus <CORPUS_ROOT>` does the last two lines incrementally (only new or
+re-converted books are re-split) and runs `corpus.py add` when
 `VAULT_SEARCH_DIR` points at the vault-search checkout; with nothing set it
 prints `[skip]` and the command, so a green run does *not* mean an index
 exists. Guidelines, prerequisites and verification:

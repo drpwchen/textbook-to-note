@@ -23,3 +23,8 @@ _render_cache/
 # OS noise
 .DS_Store
 Thumbs.db
+
+# Default corpus root written by post_convert.py (resplit of output/)
+corpus/
+*.egg-info/
+build/

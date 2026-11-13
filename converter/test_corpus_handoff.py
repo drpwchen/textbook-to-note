@@ -282,6 +282,9 @@ def test_index_cli_exit_code():
             "sys.exit(3)\n", encoding="utf-8")
         env = {k: v for k, v in os.environ.items() if k not in ("INDEXER_SCRIPT", "VAULT_SEARCH_PY")}
         env["VAULT_SEARCH_DIR"] = str(vs)
+        # never let the resplit chain touch the repo's own ./output or ./corpus
+        env["OUTPUT_DIR"] = str(tmp / "output")
+        env["CORPUS_DIR"] = str(root)
         env["PYTHONIOENCODING"] = "utf-8"
         p = subprocess.run([sys.executable, "-B", str(HERE / "post_convert.py"), "--index", "--corpus", str(root)],
                            env=env, capture_output=True, text=True, encoding="utf-8")

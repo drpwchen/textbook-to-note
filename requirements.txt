@@ -12,6 +12,10 @@ numpy>=1.24           # image histogram checks (scan_fix_negatives.py)
 #   ollama vision verification (scan_fix_negatives.py --verify-dark) -> requests, plus a local
 #                                                     ollama server with a vision model pulled
 #       requests>=2.31
-#   external semantic indexer / lancedb coverage audit (post_convert.py) -> lancedb, plus
-#                                                     your own indexer script (see shared/config.py)
+#   semantic search: none here. vault-search indexes the corpus folder and brings its own
+#                                                     dependencies (docs/setup-details.md, Step 5).
+#                                                     Only the deprecated INDEXER_SCRIPT route's
+#                                                     coverage audit (post_convert.py --audit) imports:
 #       lancedb
+#
+# `pip install -e .` (pyproject.toml) installs the same core set plus the t2n-* commands.

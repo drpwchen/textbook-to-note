@@ -134,7 +134,7 @@ shared/       env-driven configuration (config.py)
 
 ## Requirements
 
-- Python 3.10+, `pip install -r requirements.txt`
+- Python 3.10+, `pip install -r requirements.txt` (or `pip install -e .` for the `t2n-convert` / `t2n-post-convert` commands)
 - **CPU-only is a first-class path** for born-digital PDFs (the common case) — no GPU needed
 - Optional, for scanned books (OCR ladder) and semantic search: an NVIDIA GPU or Apple Silicon + [Surya OCR](https://github.com/VikParuchuri/surya), [ollama](https://ollama.com) with a small vision model and `bge-m3` for embeddings — all local, nothing leaves your machine. Figure extraction and its QC gate need none of this (pure computation since 0.7.1). See the hardware-tier table in [`docs/ocr-ladder.md`](docs/ocr-ladder.md).
 - Tested on Windows 11 and macOS; Windows-specific gotchas are handled in code (cp950 subprocess decoding, atomic-ish path ops)

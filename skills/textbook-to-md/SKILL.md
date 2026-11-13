@@ -162,7 +162,8 @@ python {REPO}/converter/post_convert.py
 
 # Or individual steps:
 python {REPO}/converter/post_convert.py --verify   # check quality only
-python {REPO}/converter/post_convert.py --index --corpus <CORPUS_ROOT>   # = vault-search corpus.py add <CORPUS_ROOT>
+python {REPO}/converter/post_convert.py --resplit-only  # re-split new / re-converted books into CORPUS_DIR
+python {REPO}/converter/post_convert.py --index    # that, then vault-search corpus.py add CORPUS_DIR
 ```
 
 The pipeline does **not** extract figures — it only verifies page markers,

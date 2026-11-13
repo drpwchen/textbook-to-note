@@ -41,6 +41,9 @@ CORPUS_MARKER_NAME = "corpus.json"
 CORPUS_MARKER = {"format": "t2n-corpus/1", "kind": "textbook"}
 ROOT_FILES_NOT_COPIED = {"_chapter_index.json", "batch_progress.json", "conversion_summary.json",
                          "INDEX.md", "already_converted.json", REPORT_NAME, CORPUS_MARKER_NAME}
+# batch bookkeeping is never corpus content, at any depth (a guideline run with
+# OUTPUT_DIR=<corpus>/_Guidelines leaves its batch_progress.json inside the _Guidelines folder)
+BOOKKEEPING_NOT_COPIED = {"batch_progress.json", "conversion_summary.json", "already_converted.json"}
 SPLIT_NAME_RES = (
     re.compile(r"^ch\d{2,}[a-z]?(_[A-Za-z0-9_]*)?\.md$"),
     re.compile(r"^pages_\d{4}-\d{4}\.md$"),
@@ -650,6 +653,8 @@ def resplit_book(src: Path, out_root: Path, idx: PdfIndex, config: dict, pdf_map
         rel = p.relative_to(src).as_posix()
         if rel in excl:
             res["notes"].append(f"excluded by config: {rel}")
+            continue
+        if p.name in BOOKKEEPING_NOT_COPIED:
             continue
         if p.parent in unit_set and is_split_name(p.name):
             continue

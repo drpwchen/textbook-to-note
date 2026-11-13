@@ -48,6 +48,11 @@ all present and individually correct, so **no downstream check catches it**; it 
 defect the fitz path carries a dedicated column sort to avoid. `T2N_COLUMN_SORT=0` disables
 the column split on both paths.
 
+The OCR split is at the page center by default. `T2N_OCR_GUTTER=1` (default off) first looks
+for a measured gutter — the vertical strip in the middle half of the page that the fewest
+narrow blocks cross — for boxed layouts whose gutter sits well off center (one measured page:
+38% of the width). If none qualifies, the page-center split applies as before.
+
 ### Output QC (the caller's side)
 
 `surya_ocr_pdf()` counts, per book: unparseable stdout lines, images the adapter never

@@ -187,7 +187,7 @@ COLUMN_MIN_LINES = 2     # each column needs at least this many lines before we 
 
 
 def column_order_boxes(items: list, page_w: float, page_x0: float = 0.0,
-                       min_items: int = 4) -> list | None:
+                       min_items: int = 4, gutter_x: float | None = None) -> list | None:
     """Reorder positioned text boxes into two-column reading order, or None when the page is
     single-column / ambiguous (every caller then falls back to its own previous behaviour).
 
@@ -199,11 +199,15 @@ def column_order_boxes(items: list, page_w: float, page_x0: float = 0.0,
 
     `min_items` differs by caller because the granularities differ: four fitz lines is a
     trivially low bar, four OCR layout blocks is already most of a page.
+
+    `gutter_x` overrides the page center as the split line (the OCR path passes a measured
+    gutter under T2N_OCR_GUTTER=1, see find_ocr_gutter()); None keeps the page-center split
+    the fitz path relies on.
     """
     if len(items) < min_items:
         return None
 
-    center = page_x0 + page_w / 2.0
+    center = gutter_x if gutter_x is not None else page_x0 + page_w / 2.0
     tol = page_w * COLUMN_TOL_FRAC
 
     full, left, right = [], [], []
@@ -1090,6 +1094,28 @@ def _release_plumber_page(page) -> None:
             pass  # releasing a cache must never be able to fail a conversion
 
 
+_SHARED_TABLE_WORKER = None
+
+
+def shared_table_worker():
+    """One warm DoclingTableWorker for a whole batch run, or None when the rung is off.
+    Docling costs ~4-12 s of model load on its first call; a corpus run of ~300 books would pay
+    that cold start once per book if each convert_pdf() built its own. The worker keeps its
+    model in VRAM for its whole lifetime, so the GPU lease lives exactly as long: acquired
+    before the worker exists, released at process exit (a crashed holder is reaped by the
+    broker). Without a broker the lease is a no-op."""
+    global _SHARED_TABLE_WORKER
+    if os.environ.get("T2N_DOCLING", "0") != "1" or DoclingTableWorker is None:
+        return None
+    if _SHARED_TABLE_WORKER is None:
+        import atexit
+        _cm = _gpu_lease_ctx("t2n_docling")
+        _cm.__enter__()
+        atexit.register(lambda: _cm.__exit__(None, None, None))
+        _SHARED_TABLE_WORKER = DoclingTableWorker()
+    return _SHARED_TABLE_WORKER
+
+
 def convert_pdf(pdf_path: str, out_path: str, book_label: str, table_worker=None) -> dict:
     """Convert a single PDF to markdown. Returns stats dict.
 
@@ -1522,7 +1548,7 @@ def batch_convert(books: dict, book_keys: list[str]) -> dict:
 
             label = f"{book['label']} — {pdf.stem}"
             try:
-                stats = convert_pdf(str(pdf), md_path, label)
+                stats = convert_pdf(str(pdf), md_path, label, table_worker=shared_table_worker())
                 stats["file"] = pdf.name
                 stats["book"] = book["label"]
                 results.append(stats)
@@ -2105,8 +2131,20 @@ def detect_fitz_silent_failure(pdf_path: str, sample_pages: int = 5, threshold: 
         return False
 
 
+def surya_unavailable_reason() -> str | None:
+    """None when the Surya rung can run, else a message naming what is missing and which env
+    var points at it. Used verbatim in the batch log so a book that needed OCR and could not
+    get it is never silent."""
+    missing = []
+    if not (SURYA_VENV_PY and SURYA_VENV_PY.exists()):
+        missing.append(f"venv python not found at {SURYA_VENV_PY} (set SURYA_VENV_PY)")
+    if not (SURYA_ADAPTER and SURYA_ADAPTER.exists()):
+        missing.append(f"adapter not found at {SURYA_ADAPTER} (set SURYA_ADAPTER)")
+    return "; ".join(missing) or None
+
+
 def surya_available() -> bool:
-    return bool(SURYA_VENV_PY and SURYA_ADAPTER and SURYA_VENV_PY.exists() and SURYA_ADAPTER.exists())
+    return surya_unavailable_reason() is None
 
 
 # === OCR output QC ==========================================================================
@@ -2172,6 +2210,77 @@ def ocr_quality_verdict(total_pages: int, empty_pages: int, chars_total: int,
 # individual lines — same heuristic, different granularity, so the minimum differs.
 OCR_COLUMN_MIN_BLOCKS = 4
 
+# Measured gutter for OCR pages (opt-in: T2N_OCR_GUTTER=1; unset = page-center split, byte-
+# identical to 0.8.0). Boxed course-manual layouts put the gutter well off center (one measured
+# page: the left column ends at ~38% of the width), so a page-center split classifies every
+# right-column line as "full-width" and interleaves it with the left column again. Search the
+# middle band of the page for the vertical strip the fewest boxes cross. Crossers become
+# full-width separators, so they must stay rare — a single-column page has most lines crossing
+# every candidate and is rejected here. Opt-in because the evidence is two pages, not a corpus.
+OCR_GUTTER_SEARCH = (0.25, 0.75)    # candidate band, as fractions of page width
+OCR_GUTTER_STEP_FRAC = 0.0025       # scan step (~6 px on a 300 dpi A4 render)
+OCR_GUTTER_MAX_CROSS_FRAC = 0.15    # at most this share of boxes may straddle the gutter
+OCR_GUTTER_WIDE_FRAC = 0.30         # a box this wide is a banner/full-width line, not a label
+
+
+def ocr_gutter_enabled() -> bool:
+    return os.environ.get("T2N_OCR_GUTTER", "0") == "1"
+
+
+def find_ocr_gutter(blocks: list, page_w: float) -> float | None:
+    """x of the vertical strip that best splits an OCR'd page into two columns, or None.
+
+    `blocks` are `(x0, y0, x1, y1, text)`. A candidate x (scanned across the middle band) is
+    eligible when at most OCR_GUTTER_MAX_CROSS_FRAC of the boxes straddle it — a single-column
+    page fails this everywhere. Eligible candidates rank by:
+      1. fewest NARROW crossers. Wide boxes (>= OCR_GUTTER_WIDE_FRAC of the page, i.e. banner
+         titles and full-width lines) are expected to straddle a gutter and become full-width
+         separators downstream; a narrow crosser (a label, a column line) means x cuts content.
+      2. most text characters on the lighter side. On a figure-left page the gaps between
+         sparse anatomy labels are as empty as the true gutter beside the text column;
+         splitting inside the figure would leave most labels on the text side, interleaved
+         with it again.
+      3. nearest the page center.
+    Returns the midpoint of the contiguous run of candidates sharing the best rank.
+    """
+    if page_w <= 0 or len(blocks) < OCR_COLUMN_MIN_BLOCKS:
+        return None
+    lo, hi = OCR_GUTTER_SEARCH
+    step = page_w * OCR_GUTTER_STEP_FRAC
+    cap = len(blocks) * OCR_GUTTER_MAX_CROSS_FRAC
+    wide = page_w * OCR_GUTTER_WIDE_FRAC
+    ranked = []  # (narrow_crossers, -lighter_side_chars) per candidate, None if ineligible
+    xs, x = [], page_w * lo
+    while x <= page_w * hi:
+        crossers = [b for b in blocks if b[0] < x < b[2]]
+        if len(crossers) > cap:
+            ranked.append(None)
+        else:
+            narrow = sum(1 for b in crossers if b[2] - b[0] < wide)
+            lc = sum(len(b[4]) for b in blocks if b[2] <= x)
+            rc = sum(len(b[4]) for b in blocks if b[0] >= x)
+            ranked.append((narrow, -min(lc, rc)))
+        xs.append(x)
+        x += step
+    eligible = [i for i, r in enumerate(ranked) if r is not None]
+    if not eligible:
+        return None
+    best = min(ranked[i] for i in eligible)
+    runs, start = [], None
+    for i, r in enumerate(ranked + [None]):
+        if r == best and start is None:
+            start = i
+        elif r != best and start is not None:
+            runs.append((start, i - 1))
+            start = None
+    s, e = min(runs, key=lambda r: abs((xs[r[0]] + xs[r[1]]) / 2 - page_w / 2))
+    gx = (xs[s] + xs[e]) / 2.0
+    left = sum(1 for b in blocks if b[2] <= gx)
+    right = sum(1 for b in blocks if b[0] >= gx)
+    if left < COLUMN_MIN_LINES or right < COLUMN_MIN_LINES:
+        return None
+    return gx
+
 
 def order_ocr_blocks(blocks: list, page_w: float) -> list[str]:
     """Reading order for one OCR'd page. `blocks` are `(x0, y0, x1, y1, text)` in image pixels.
@@ -2189,7 +2298,15 @@ def order_ocr_blocks(blocks: list, page_w: float) -> list[str]:
     if not blocks:
         return []
     if page_w > 0 and os.environ.get("T2N_COLUMN_SORT", "1") != "0":
-        ordered = column_order_boxes(blocks, page_w, 0.0, min_items=OCR_COLUMN_MIN_BLOCKS)
+        ordered = None
+        if ocr_gutter_enabled():
+            # Measured gutter first (off-center boxed layouts), page center otherwise.
+            gx = find_ocr_gutter(blocks, page_w)
+            if gx is not None:
+                ordered = column_order_boxes(blocks, page_w, 0.0,
+                                             min_items=OCR_COLUMN_MIN_BLOCKS, gutter_x=gx)
+        if ordered is None:
+            ordered = column_order_boxes(blocks, page_w, 0.0, min_items=OCR_COLUMN_MIN_BLOCKS)
         if ordered is not None:
             return [b[4] for b in ordered]
     return [b[4] for b in sorted(blocks, key=lambda b: (b[1], b[0]))]
@@ -2205,8 +2322,9 @@ def surya_ocr_pdf(pdf_path: str, out_md_path: str, dpi: int = 300, batch_size: i
     because every downstream step then treats the book as done.
     """
     import tempfile
-    if not surya_available():
-        raise RuntimeError(f"Surya venv not found at {SURYA_VENV_PY} (set SURYA_VENV_PY/SURYA_ADAPTER)")
+    reason = surya_unavailable_reason()
+    if reason:
+        raise RuntimeError(f"Surya unavailable: {reason}")
     doc = fitz.open(pdf_path)
     total = doc.page_count
     print(f"  [SURYA] OCR {total} pages @ {dpi}dpi ...", flush=True)
@@ -2353,7 +2471,7 @@ def batch_dir_convert(root_dir: Path, force: bool = False, force_surya: bool = F
     total_tables_done = 0
     total_fig_refs_done = 0
     converted = 0
-    skipped_scan = 0
+    surya_failed = []  # books that needed OCR but could not get it — reported, exit 1
     errors = []
 
     for idx, (pdf, rel) in enumerate(all_pdfs):
@@ -2386,12 +2504,20 @@ def batch_dir_convert(root_dir: Path, force: bool = False, force_surya: bool = F
             elif detect_fitz_silent_failure(str(pdf)):
                 ocr_reason = "FITZ-FAIL"
 
+        surya_reason = None
         if ocr_reason and not surya_available():
-            print(f"  [{ocr_reason}] {pdf.name} - skipped (Surya unavailable)")
-            skipped_scan += 1
-            progress["errors"].append(f"[{ocr_reason}] {rel}")
-            completed_set.add(rel)
-            save_progress({"completed": list(completed_set), "errors": progress["errors"]})
+            surya_reason = surya_unavailable_reason() or "surya_available() is False"
+        if surya_reason:
+            # FAILED, not completed: marking it completed meant a later run, after Surya was
+            # installed (or its adapter path fixed), skipped the book forever. Leaving it out of
+            # completed_set means the next run picks it up again.
+            msg = f"[{ocr_reason}] {rel}: FAILED — needs Surya OCR but Surya is unavailable: {surya_reason}"
+            print(f"  [FAIL] {msg}", flush=True)
+            surya_failed.append(msg)
+            errors.append(msg)
+            progress["completed"] = list(completed_set)
+            progress["errors"] = list(set(progress.get("errors", []) + errors))
+            save_progress(progress)
             continue
 
         if ocr_reason:
@@ -2434,7 +2560,8 @@ def batch_dir_convert(root_dir: Path, force: bool = False, force_surya: bool = F
                 stats = convert_epub(str(pdf), out_dir, label, clear_stale=True)
                 print(f"  [{converted + 1}/{len(all_pdfs)}] {pdf.name}: epub, {stats['chapters']} chapters, {stats['words']} words", flush=True)
             else:
-                stats = convert_pdf(str(pdf), str(full_text_path), label)
+                stats = convert_pdf(str(pdf), str(full_text_path), label,
+                                    table_worker=shared_table_worker())
 
                 # Chapter split (prefer PDF bookmarks, fallback to pattern detection)
                 content = full_text_path.read_text(encoding='utf-8')
@@ -2442,8 +2569,13 @@ def batch_dir_convert(root_dir: Path, force: bool = False, force_surya: bool = F
                 split_into_chapters(content, out_dir, stats["pages"], pdf_path=str(pdf))
                 # The source PDF is never written: detected chapters stay in the md output only.
 
-                rj = f", {stats['rejected_tables']} page-frame rejected" if stats.get("rejected_tables") else ""
-                print(f"  [{converted + 1}/{len(all_pdfs)}] {pdf.name}: {stats['pages']}p, {stats['tables']}t, {stats['fig_refs']}f{rj}", flush=True)
+                rj = f", {stats['rejected_tables']} pseudo-table rejected" if stats.get("rejected_tables") else ""
+                dl = f", {stats['docling_tables']} docling" if stats.get("docling_tables") else ""
+                rev = f", {stats['review_flagged']} review" if stats.get("review_flagged") else ""
+                sw = f", {stats['sideways_pages']} sideways" if stats.get("sideways_pages") else ""
+                rel_flag = " [RELIABILITY-FLAGGED]" if stats.get("reliability_flagged") else ""
+                print(f"  [{converted + 1}/{len(all_pdfs)}] {pdf.name}: {stats['pages']}p, "
+                      f"{stats['tables']}t, {stats['fig_refs']}f{rj}{dl}{rev}{sw}{rel_flag}", flush=True)
                 for w in stats.get("warnings", []):
                     print(f"    [WARN] {pdf.stem}: {w}", flush=True)
                     errors.append(f"[TABLE-WARN] {rel}: {w}")
@@ -2465,12 +2597,16 @@ def batch_dir_convert(root_dir: Path, force: bool = False, force_surya: bool = F
         save_progress(progress)
 
     print(f"\n=== Batch-dir done ===")
-    print(f"Converted: {converted} | Scanned (skipped): {skipped_scan} | Errors: {len(errors)}")
+    print(f"Converted: {converted} | Failed (Surya unavailable): {len(surya_failed)} | Errors: {len(errors)}")
     print(f"Pages: {total_pages_done} | Tables: {total_tables_done} | Fig refs: {total_fig_refs_done}")
     if errors:
         print(f"Errors:")
         for e in errors[:10]:
             print(f"  {e}")
+    if surya_failed:
+        print(f"\n[FAIL] {len(surya_failed)} book(s) need Surya OCR and were NOT converted "
+              f"(not marked completed; rerun after fixing): {surya_unavailable_reason()}")
+    return {"converted": converted, "errors": errors, "surya_failed": surya_failed}
 
 
 # === CLI ===
@@ -2511,7 +2647,9 @@ def main():
                              force=args.force))
 
     if args.batch_dir:
-        batch_dir_convert(Path(args.batch_dir), force=args.force, force_surya=args.force_surya)
+        result = batch_dir_convert(Path(args.batch_dir), force=args.force, force_surya=args.force_surya)
+        if result["surya_failed"]:
+            sys.exit(1)
 
     elif args.batch:
         books = load_books()

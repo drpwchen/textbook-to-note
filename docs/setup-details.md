@@ -48,6 +48,10 @@ don't fit:
   `SURYA_ADAPTER` points at `converter/surya_adapter.py`, which ships in this
   repo; `SURYA_VENV_PY` points at a *separate* venv's interpreter, since the
   OCR stack must not share dependencies with the converter
+- Profile C corpus: `CORPUS_DIR` (default `./corpus`) — where
+  `post_convert.py` re-splits `OUTPUT_DIR` into a searchable corpus — and
+  `T2N_PDF_ROOTS`, where it looks for a book's PDF when the `Source:` path is
+  gone (default `BOOKS_DIR`)
 - Optional semantic search (Profile C): `VAULT_SEARCH_DIR` = the vault-search
   checkout, and `VAULT_SEARCH_PY` = the Python of vault-search's environment if
   it differs from this one. Only used by the `post_convert.py --index`
@@ -64,6 +68,12 @@ Know where the OCR path actually lives before you reach for it:
 - Routing to OCR exists **only** in the `--batch-dir` code path
   (`converter/convert.py`), where a PDF is sent to OCR if it is scan-only, if
   a silent `fitz` failure is detected, or if you passed `--force-surya`.
+- When `--batch-dir` routes a PDF to OCR and Surya is not configured
+  (`SURYA_VENV_PY` / `SURYA_ADAPTER` unset or missing), that book is
+  **FAILED**: a `[FAIL]` line names what is missing, the book is not marked
+  completed (the next run tries it again), and the run exits 1. The other
+  books in the run convert normally. Either set up Surya (below) or move that
+  PDF out of the folder.
 - The **single-file** path (`python converter/convert.py one.pdf`) never
   invokes OCR at all. If a single-file conversion produced text, OCR was not
   involved and installing an engine will change nothing.
@@ -168,15 +178,32 @@ python converter/convert.py --resplit <OUTPUT_DIR> --out <CORPUS_ROOT> --pdf-roo
 inside it are `<Name>/<file>`). Keep the guideline PDFs' file names equal to
 the folder names you want (`<Name>.pdf` → `_Guidelines/<Name>/`).
 
-### The `post_convert.py --index` shortcut
+### The `post_convert.py --index` shortcut (steps 2 and 3, incremental)
 
-`python converter/post_convert.py --index --corpus <CORPUS_ROOT>` runs step 3
-for you when `VAULT_SEARCH_DIR` points at a vault-search checkout (the repo,
-containing `server/corpus.py`); set `VAULT_SEARCH_PY` to vault-search's
-Python if it lives in another environment. It exits with `corpus.py`'s exit
-code. With `VAULT_SEARCH_DIR` unset, or pointing at something that is not a
-checkout, it runs nothing, prints `[skip]` and the exact command, and exits
-0 — so a green run does *not* mean an index exists.
+`python converter/post_convert.py --index` keeps a corpus root in step with
+`OUTPUT_DIR` and hands it over, so after the first setup a new book needs only
+`--batch-dir` and this one command:
+
+1. **Resplit, only what changed.** The corpus root is `CORPUS_DIR` (default
+   `./corpus`; `--corpus <dir>` overrides). A book is re-split when it has no
+   `_manifest.json` there yet, or when its markdown is newer than that
+   manifest (re-converted — its corpus folder is rebuilt). Each book's PDF is
+   looked up in the folder of the PDF its `full_text.md` names on the
+   `Source:` line; when that file is gone, in `T2N_PDF_ROOTS` (folders
+   separated by `;` on Windows, `:` elsewhere; default `BOOKS_DIR`).
+2. **Figure folders are linked, not copied** into the corpus (a junction on
+   Windows, a symlink elsewhere), so there is one copy of the images.
+3. **Hand-off**: when `VAULT_SEARCH_DIR` points at a vault-search checkout
+   (the repo, containing `server/corpus.py`), it runs `corpus.py add
+   <CORPUS_DIR>`; set `VAULT_SEARCH_PY` to vault-search's Python if it lives
+   in another environment. With `VAULT_SEARCH_DIR` unset, or pointing at
+   something that is not a checkout, it prints `[skip]` and the exact command
+   — so a green run does *not* mean an index exists.
+
+Any failed resplit or link is listed after `[FAIL]` and the exit code is 1;
+a failed `corpus.py add` passes its own exit code through. `--resplit-only`
+runs steps 1–2, `--backfill` step 3 alone, and plain `post_convert.py` runs
+verification and `INDEX.md` first, then all three.
 
 `INDEXER_SCRIPT` (an indexer with an `--incremental` / `--book <name>` CLI)
 is **deprecated**: when set it still runs as before, with a warning on stderr,

@@ -50,7 +50,7 @@ def make_pdf(path: Path) -> None:
     doc.close()
 
 
-def fake_convert_pdf(pdf_path, out_md_path, label=""):
+def fake_convert_pdf(pdf_path, out_md_path, label="", table_worker=None):
     Path(out_md_path).write_text("<!-- page 1 -->\nfront\n" + NEW_CH02, encoding="utf-8")
     return {"pages": 3, "tables": 0, "fig_refs": 0}
 
