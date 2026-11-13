@@ -8,7 +8,7 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
-## [0.8.3] — 2026-11-14 — Invalid splits held out of the index; `--force` keeps figure links; gap chapters
+## [0.8.3] — 2026-11-14 — Failing books held alone with a fix request; `--force` keeps figure links; gap chapters
 
 ### Added
 - **A book that fails split validation is held alone, with a fix request.** `post_convert.py`
