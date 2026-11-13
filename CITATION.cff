@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "textbook-to-note"
+type: software
+version: 0.8.3
+date-released: 2026-11-14
+license: MIT
+url: "https://github.com/drpwchen/textbook-to-note"
+repository-code: "https://github.com/drpwchen/textbook-to-note"
+authors:
+  - family-names: Chen
+    given-names: Po-Wei

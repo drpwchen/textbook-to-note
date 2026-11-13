@@ -8,6 +8,14 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [Unreleased] — Docs: README quality pass (2026-11-14)
+
+### Docs
+- README (EN and zh-TW): support line after the quickstart pointer, new Cost and Limitations sections.
+- Replaced exact corpus sizes in README and CHANGELOG with "several hundred books".
+- README（英文與繁中）：quickstart 後加支持連結、新增「費用」與「限制」段落；README 與 CHANGELOG 中的精確語料庫書數改為概略說法。
+- Added `CITATION.cff`.
+
 ## [0.8.3] — 2026-11-14 — `--force` keeps figure links; bare-numbered chapters that fill a gap
 
 ### Changed
@@ -25,7 +33,7 @@ loose semantic versioning.
   `b`, entries at one other level numbered exactly `a+1 … b−1` (in order, on pages between
   theirs) are chapters too. Adams & Victor's Neurology (chapters 3–26 one Section deeper)
   splits with no config at all: every one of its 1,616 pages gets the same chapter number as
-  the 24 hand-written overrides gave. Full corpus resplit before/after: 288 books, 19,128
+  the 24 hand-written overrides gave. Full corpus resplit before/after: several hundred books, 19,128
   files, 0 changed (books with `chapter_number_overrides` are still never promoted).
   Spec: `openspec/changes/archive/resplit-gap-chapters/`.
 
@@ -74,9 +82,9 @@ loose semantic versioning.
   chapter level it used to set is found automatically. The quickstart's commands and output are
   unchanged.
 
-The two chapter-number changes, measured on the author's 285-book corpus before vs after: no output file and no validator
+The two chapter-number changes, measured on the author's corpus before vs after: no output file and no validator
 verdict changed (the level choice re-run on all 185 recorded outlines: no change); the validator
-over the production corpus stays 284/285.
+over the production corpus stays all-but-one.
 
 Spec: `openspec/changes/archive/chapter-numbers-few-or-lost/`,
 `openspec/changes/archive/no-full-text-sources/`. Tests: `converter/test_chapter_numbers.py`,
@@ -256,8 +264,8 @@ tagged locally but never published separately.
   and five wrongly split books passed.
 
 ### Measured
-On the author's corpus (284 books; numbers in the archived change folders): 0-byte chapter files
-5,046 → 0; 283 / 284 books pass the validator (the remaining one has no outline and lost its
+On the author's corpus (several hundred books; numbers in the archived change folders): 0-byte chapter files
+5,046 → 0; all but one book pass the validator (the remaining one has no outline and lost its
 chapter titles to two-column OCR); 47 books needed a config entry. A hand check of 100 random
 chapters found the chapter number right in 99; the miss was a book whose outline, merged from
 per-chapter PDFs, numbered every chapter +7 without failing any check — fixed by its config
@@ -266,7 +274,7 @@ With `T2N_SPLIT_DEEP_HEADINGS=1` on the same corpus, 58,385 of 63,406 deeper out
 (92.1%) found their line and became headings; validator results were unchanged.
 Cross-level chapters (measured 2026-11-13): resplit before vs after the fix changed 3 books, all
 corrections; 281 identical. The `chapter_unmapped` check found 5 books that had passed while
-wrong (3 fixed by the code, 2 by config entries); validator still 283 / 284.
+wrong (3 fixed by the code, 2 by config entries); validator still all but one.
 
 ## [0.7.7] — 2026-11-09 — Note-writing rules for conflicts, flagged tables and citation checks
 
@@ -693,7 +701,7 @@ wrong (3 fixed by the code, 2 by config entries); validator still 283 / 284.
   No threshold was loosened — only the granularity of the tally — and rejecting costs no content,
   since the page prose that fitz read correctly is emitted either way.
 
-  Blast radius measured before the change, over all 47,350 tables in a 286-book physical-medicine
+  Blast radius measured before the change, over all 47,350 tables in a several-hundred-book physical-medicine
   corpus using each table's own page prose as the oracle: **17 tables newly rejected, in 5 books**
   (Braddom 6e and 7e Table 43.1 "Inherited and Acquired Myopathies", two VA/DoD CPG recommendation
   categorization appendices, one PRM research handbook). Every one was inspected and every one was
@@ -731,7 +739,7 @@ wrong (3 fixed by the code, 2 by config entries); validator still 283 / 284.
 
   Measured on a six-book dental corpus (~7,100 pages): 249 sideways pages repaired in one 12th
   edition alone, 1,784 reversed tokens → 0, usable tables 92 → 334. Measured again before merge on
-  an unrelated physical-medicine corpus of 286 books: **34 books, ~99 tables, 378 rows** were
+  an unrelated physical-medicine corpus of several hundred books: **34 books, ~99 tables, 378 rows** were
   reversed — electrotherapy parameter tables, hip-OA injection trial tables, differential-diagnosis
   grids. Not a typesetting quirk of one publisher.
 
