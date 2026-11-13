@@ -31,6 +31,7 @@ import shutil
 import sys
 import time
 import argparse
+import bisect
 import json
 import subprocess
 import tempfile
@@ -288,6 +289,136 @@ def column_sorted_text(page) -> str | None:
     if ordered is None:
         return None
     return "\n".join(l[4] for l in ordered)
+
+
+# === Run-in term/definition pairing (glossary / key-terms pages) ===
+# A born-digital glossary sets each entry as a run-in head: the bold term and the first line of
+# its definition share one baseline, the definition wraps under a hanging indent. Some producers
+# (OpenStax's "Key Terms" pages, measured) write the content stream as ALL the terms, then ALL the
+# definitions. The page is not two columns — the definitions span the page center, so
+# column_order_boxes() correctly declines it — and plain get_text() follows the stream, so every
+# term lands pages away from its definition and clean_text() then glues the terms into one line.
+#
+# A pair = a line set entirely in bold (the term) and a line that does not start in bold (the
+# definition) on the same baseline, the definition starting at most RUNIN_MAX_GAP_FRAC of the
+# page width right of the term, with nothing starting within that same gap right of the
+# definition (a third cell on the row = a table, not a glossary); a definition claimed by two
+# terms is dropped.
+#
+# When a page holds at least RUNIN_MIN_PAIRS run-in pairs that the stream separates, each
+# definition (its first line plus the rest of its fitz block) is moved to directly after its
+# term, one entry per paragraph: `**term** definition`. Every other line keeps stream order —
+# a geometric re-sort was tried and rejected: it glues the running header onto a definition
+# continued from the previous page (they share the top baseline).
+#
+# Opt-in: T2N_RUNIN_PAIRS=1 (default off; unset = byte-identical plain get_text()).
+RUNIN_BASELINE_TOL = 1.5      # pt: term and definition first line share a baseline within this
+RUNIN_MAX_GAP_FRAC = 0.04     # definition starts at most this share of page width right of the term
+RUNIN_MIN_PAIRS = 3           # fewer stream-separated pairs than this → page left alone
+
+
+def _span_bold(span) -> bool:
+    """Bold by the font flags (bit 4) or, for fonts that do not set it, by the font name."""
+    return bool(span.get("flags", 0) & 16) or bool(
+        re.search(r"bold|black|heavy|semibold|demi", span.get("font", ""), re.I))
+
+
+def runin_pairs_enabled() -> bool:
+    return os.environ.get("T2N_RUNIN_PAIRS", "0") == "1"
+
+
+def runin_paired_text(page) -> str | None:
+    """Page text with stream-separated run-in term/definition pairs rejoined, or None when the
+    page has fewer than RUNIN_MIN_PAIRS such pairs (caller keeps plain get_text())."""
+    d = page.get_text("dict")
+    lines = []  # stream order: dict(block, bbox, baseline, text)
+    for bi, blk in enumerate(d.get("blocks", [])):
+        if blk.get("type") != 0:
+            continue
+        for ln in blk.get("lines", []):
+            spans = ln.get("spans", [])
+            txt = "".join(s.get("text", "") for s in spans)
+            if not txt.strip() or not spans:
+                continue
+            inked = [s for s in spans if s.get("text", "").strip()]
+            lines.append({"block": bi, "bbox": ln["bbox"], "base": spans[0]["origin"][1],
+                          "text": txt,
+                          # rotated text is kept in the output but never paired
+                          "upright": tuple(round(v, 3) for v in ln.get("dir", (1.0, 0.0)))
+                          == (1.0, 0.0),
+                          "bold_all": all(_span_bold(s) for s in inked),
+                          "bold_start": _span_bold(inked[0])})
+    if len(lines) < 2 * RUNIN_MIN_PAIRS:
+        return None
+
+    max_gap = page.rect.width * RUNIN_MAX_GAP_FRAC
+    # Candidate pairs: for each line, the nearest line starting just right of it on its baseline.
+    cand = {}
+    by_base = sorted(range(len(lines)), key=lambda i: lines[i]["base"])
+    bases = [lines[i]["base"] for i in by_base]
+
+    def row(i):
+        lo = bisect.bisect_left(bases, lines[i]["base"] - RUNIN_BASELINE_TOL)
+        hi = bisect.bisect_right(bases, lines[i]["base"] + RUNIN_BASELINE_TOL)
+        return by_base[lo:hi]
+
+    def followed(i):
+        """Another line starts within max_gap right of line i on its baseline (a table cell)."""
+        x1 = lines[i]["bbox"][2]
+        return any(-1.0 <= lines[k]["bbox"][0] - x1 <= max_gap for k in row(i) if k != i)
+
+    for ti, t in enumerate(lines):
+        best = None
+        for di in row(ti):
+            dl = lines[di]
+            if di == ti or not (t["upright"] and dl["upright"]):
+                continue
+            # The run-in signature: a bold term, a definition that does not start bold
+            # (figure panel letters next to their labels share one weight, measured).
+            if not t["bold_all"] or dl["bold_start"]:
+                continue
+            gap = dl["bbox"][0] - t["bbox"][2]
+            if -1.0 <= gap <= max_gap and (best is None or gap < best[0]):
+                best = (gap, di)
+        if best is not None and not followed(best[1]):
+            cand[ti] = best[1]
+    # A definition claimed by two terms is ambiguous: neither pair is kept. (A line cannot be
+    # both a term and a definition — a term is all bold, a definition does not start bold.)
+    def_count = {}
+    for di in cand.values():
+        def_count[di] = def_count.get(di, 0) + 1
+    pairs = {ti: di for ti, di in cand.items() if def_count[di] == 1}
+    separated = [ti for ti, di in pairs.items() if di != ti + 1]
+    if len(separated) < RUNIN_MIN_PAIRS:
+        return None
+
+    # Each separated definition takes its first line plus the following lines of its block,
+    # up to the next line that is itself a definition or a term.
+    starts = {pairs[ti] for ti in separated}
+    terms = set(separated)
+    entry_of, consumed = {}, set()
+    for ti in separated:
+        di = pairs[ti]
+        body = [di]
+        k = di + 1
+        while (k < len(lines) and lines[k]["block"] == lines[di]["block"]
+               and k not in starts and k not in terms and k not in pairs):
+            body.append(k)
+            k += 1
+        entry_of[ti] = body
+        consumed.update(body)
+
+    out = []
+    for i, ln in enumerate(lines):
+        if i in consumed:
+            continue
+        if i in entry_of:
+            body = "\n".join(lines[k]["text"].strip() for k in entry_of[i])
+            out.append(f"\n**{ln['text'].strip()}** {body}\n")
+        else:
+            out.append(ln["text"])
+    text = "\n".join(out)
+    return re.sub(r"\n{3,}", "\n\n", text)
 
 
 # === Table-pass gating (Improvement 2) ===
@@ -1072,6 +1203,8 @@ def render_page_text(page, page_num: int) -> tuple[str, int]:
     column_sorted_text() returns None for single-column / ambiguous pages, so those keep the exact
     plain get_text() path (byte-identical to the pre-column-sort behavior)."""
     ordered = column_sorted_text(page)
+    if ordered is None and runin_pairs_enabled():
+        ordered = runin_paired_text(page)
     if ordered is None:
         page_text = clean_text(page.get_text().strip())
     else:

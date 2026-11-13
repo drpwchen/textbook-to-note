@@ -36,6 +36,7 @@ jobs:
           python test_corpus_handoff.py
           python test_private_upport.py
           python test_maintainer_config.py
+          python test_runin_pairs.py
       - name: Run figures contract tests
         shell: bash
         working-directory: figures
