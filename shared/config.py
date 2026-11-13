@@ -9,16 +9,16 @@ Env overrides:
     BOOKS_DIR           -> source PDFs/EPUBs (default: ./books)
     OUTPUT_DIR          -> markdown output root (default: ./output)
     CORPUS_DIR          -> corpus root that post_convert.py re-splits OUTPUT_DIR into
-                           (default: ./corpus); the folder vault-search indexes
+                           (default: ./corpus); the folder ask-your-library indexes
     T2N_PDF_ROOTS       -> folders (os.pathsep-separated) post_convert.py's resplit searches
                            for a book's PDF when its `Source:` PDF is gone (default: BOOKS_DIR)
     SURYA_VENV_PY       -> path to a Surya OCR venv's Python interpreter (python.exe on Windows, bin/python on macOS/Linux) (optional)
     SURYA_ADAPTER       -> path to an OCR adapter script (optional); this repo ships
                            converter/surya_adapter.py -- see docs/surya-adapter.md for the
                            interface contract if you want to plug in a different engine
-    VAULT_SEARCH_DIR    -> path to a vault-search checkout (optional); lets
+    VAULT_SEARCH_DIR    -> path to an ask-your-library checkout (optional); lets
                            `post_convert.py --index` run its server/corpus.py add
-    VAULT_SEARCH_PY     -> Python interpreter of vault-search's environment for that
+    VAULT_SEARCH_PY     -> Python interpreter of ask-your-library's environment for that
                            call (optional; default: the current interpreter)
     INDEXER_SCRIPT      -> DEPRECATED: an indexer with an --incremental/--book CLI;
                            when set, VAULT_SEARCH_DIR keeps its old meaning (the
@@ -53,7 +53,7 @@ PDF_ROOTS = [Path(r) for r in os.environ.get("T2N_PDF_ROOTS", "").split(os.paths
 SURYA_VENV_PY = Path(os.environ["SURYA_VENV_PY"]) if os.environ.get("SURYA_VENV_PY") else None
 SURYA_ADAPTER = Path(os.environ["SURYA_ADAPTER"]) if os.environ.get("SURYA_ADAPTER") else None
 
-# Optional hand-off to vault-search (not part of this repo): corpus.py add <corpus root>.
+# Optional hand-off to ask-your-library (not part of this repo): corpus.py add <corpus root>.
 VAULT_SEARCH_DIR = Path(os.environ["VAULT_SEARCH_DIR"]) if os.environ.get("VAULT_SEARCH_DIR") else None
 VAULT_SEARCH_PY = Path(os.environ["VAULT_SEARCH_PY"]) if os.environ.get("VAULT_SEARCH_PY") else None
 # Deprecated: external indexer with an --incremental/--book CLI.

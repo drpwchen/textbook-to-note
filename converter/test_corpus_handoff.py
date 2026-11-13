@@ -1,4 +1,4 @@
-"""test_corpus_handoff.py — the corpus hand-off to vault-search (openspec change corpus-handoff):
+"""test_corpus_handoff.py — the corpus hand-off to ask-your-library (openspec change corpus-handoff):
 `--resplit` marks its output root with corpus.json (t2n-corpus/1), and `post_convert.py --index`
 hands the corpus to `<VAULT_SEARCH_DIR>/server/corpus.py add` instead of calling an indexer CLI.
 Synthetic corpora, synthetic PDFs and a fake corpus.py only.
@@ -211,7 +211,7 @@ def test_index_routes():
         legacy.write_text("", encoding="utf-8")
         had_lancedb = "lancedb" in sys.modules
 
-        # route 2: vault-search checkout
+        # route 2: ask-your-library checkout
         with configured(vsd=vs) as (calls, rc):
             r, out, err = captured(pc.run_indexer, root)
             check("vs: one subprocess, corpus.py add <root>",
@@ -248,11 +248,11 @@ def test_index_routes():
             check("none: no subprocess, exit 0", not calls and r == 0, calls)
             check("none, root not a corpus: [skip] + --resplit then corpus.py add <CORPUS_ROOT>",
                   "[skip]" in out and f'--resplit "{root}" --out "<CORPUS_ROOT>"' in out
-                  and 'python "<path/to/vault-search>/server/corpus.py" add "<CORPUS_ROOT>"' in out, out)
+                  and 'python "<path/to/ask-your-library>/server/corpus.py" add "<CORPUS_ROOT>"' in out, out)
             (root / "corpus.json").write_text(json.dumps(MARKER), encoding="utf-8")
             r, out, err = captured(pc.run_indexer, root)
             check("none, root is a corpus: [skip] + exact command, no --resplit",
-                  "[skip]" in out and f'python "<path/to/vault-search>/server/corpus.py" add "{root}"' in out
+                  "[skip]" in out and f'python "<path/to/ask-your-library>/server/corpus.py" add "{root}"' in out
                   and "--resplit" not in out and not calls and r == 0, out)
 
         # VAULT_SEARCH_DIR that is an old index dir, not a checkout
@@ -260,8 +260,8 @@ def test_index_routes():
         old.mkdir()
         with configured(vsd=old) as (calls, rc):
             r, out, err = captured(pc.run_indexer, root)
-            check("not a checkout: [skip], path, 'vault-search checkout', no call, exit 0",
-                  "[skip]" in out and str(old) in out and "vault-search checkout" in out
+            check("not a checkout: [skip], path, 'ask-your-library checkout', no call, exit 0",
+                  "[skip]" in out and str(old) in out and "ask-your-library checkout" in out
                   and not calls and r == 0, out)
         if not had_lancedb:
             check("routes 2/3 never import lancedb", "lancedb" not in sys.modules)

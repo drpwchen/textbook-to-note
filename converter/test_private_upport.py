@@ -232,7 +232,7 @@ def test_shared_docling_worker():
             return {"pages": 1, "tables": 0, "fig_refs": 0, "warnings": []}
 
         with patched(convert, DoclingTableWorker=FakeWorker, _gpu_lease_ctx=fake_lease,
-                     _SHARED_TABLE_WORKER=None, convert_pdf=fake_convert_pdf, OUTPUT_BASE=out,
+                     _SHARED_TABLE_WORKER=None, _SHARED_TABLE_LEASE=None, convert_pdf=fake_convert_pdf, OUTPUT_BASE=out,
                      PROGRESS_FILE=out / "batch_progress.json"):
             with env(T2N_DOCLING="1"):
                 quiet(convert.batch_dir_convert, src)
@@ -241,11 +241,89 @@ def test_shared_docling_worker():
                       len(seen) == 2 and seen[0] is made[0] and seen[1] is made[0], seen)
                 check("docling on: one t2n_docling lease", leases == ["t2n_docling"], leases)
             convert._SHARED_TABLE_WORKER = None
+            convert._SHARED_TABLE_LEASE = None
+            leases.clear()
             seen.clear()
             with env(T2N_DOCLING=None):
                 quiet(convert.batch_dir_convert, src, force=True)
                 check("docling off: table_worker None, no new worker, no lease",
-                      seen == [None, None] and len(made) == 1 and leases == ["t2n_docling"], (seen, leases))
+                      seen == [None, None] and len(made) == 1 and leases == [], (seen, leases))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_shared_worker_merge_and_disabled():
+    made, leases = [], []
+
+    class FakeWorker:
+        def __init__(self):
+            self.disabled = False
+            self.closed = False
+            made.append(self)
+
+        def status(self):
+            return {"failure_count": 0, "disabled": self.disabled}
+
+        def close(self):
+            self.closed = True
+
+    @contextlib.contextmanager
+    def fake_lease(name, **kw):
+        leases.append(name)
+        yield
+
+    with patched(convert, DoclingTableWorker=FakeWorker, _gpu_lease_ctx=fake_lease,
+                 _SHARED_TABLE_WORKER=None, _SHARED_TABLE_LEASE=None):
+        with env(T2N_DOCLING="1", T2N_TABLE_MERGE="1"):
+            check("merge on: no shared worker, no lease",
+                  convert.shared_table_worker() is None and not made and not leases, (made, leases))
+        with env(T2N_DOCLING="1", T2N_TABLE_MERGE=None):
+            w1 = convert.shared_table_worker()
+            check("same worker while healthy", convert.shared_table_worker() is w1 and len(made) == 1)
+            w1.disabled = True
+            w2 = convert.shared_table_worker()
+            check("disabled worker replaced for the next book", w2 is not w1 and len(made) == 2, made)
+            check("disabled worker closed", w1.closed)
+            check("replacement reuses the one lease", leases == ["t2n_docling"], leases)
+            check("replacement then kept", convert.shared_table_worker() is w2 and len(made) == 2)
+
+
+def test_pdf_roots_walked_once():
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        r1, r2 = tmp / "r1", tmp / "r2"
+        (r1 / "a").mkdir(parents=True)
+        r2.mkdir()
+        for p in (r1 / "a" / "X.pdf", r1 / "Y.pdf", r2 / "X.pdf"):
+            p.write_bytes(b"%PDF")
+        whole = rs.PdfIndex([r1, r2])
+        parts = rs.PdfIndex.combine([rs.PdfIndex([r1]), rs.PdfIndex([r2])])
+        check("combine == PdfIndex(roots)",
+              parts.roots == whole.roots and parts.by_name == whole.by_name and parts.by_stem == whole.by_stem)
+
+        src, corpus = tmp / "md", tmp / "corpus"
+        for b in ("B1", "B2", "B3"):
+            (src / b).mkdir(parents=True)
+            (src / b / "full_text.md").write_text("x", encoding="utf-8")
+        walks, runs = [], []
+        real_init = rs.PdfIndex.__init__
+
+        def counting_init(self, roots):
+            walks.extend(str(r) for r in roots)
+            real_init(self, roots)
+
+        def fake_run(corpus_, out, roots, books=None, force=False, pdf_index=None, **kw):
+            runs.append(pdf_index)
+            (Path(out) / books[0]).mkdir(parents=True, exist_ok=True)
+            (Path(out) / books[0] / "_manifest.json").write_text("{}", encoding="utf-8")
+            return 0
+        with patched(pc, OUTPUT_BASE=src, PDF_ROOTS=[r1, r2]), patched(rs.PdfIndex, __init__=counting_init), \
+                patched(rs, run=fake_run):
+            failed, _ = quiet(pc.run_resplit, pc.resplit_plan(corpus), corpus)
+        check("chain: three books resplit", failed == [] and len(runs) == 3, (failed, runs))
+        check("chain: each root walked once for three books",
+              sorted(walks) == sorted([str(r1), str(r2)]), walks)
+        check("chain: every book got an index", all(i is not None for i in runs))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -400,7 +478,8 @@ def test_listing_and_bookkeeping():
 
 if __name__ == "__main__":
     for t in (test_surya_unavailable_fails_book, test_surya_unavailable_cli_exit_codes, test_ocr_gutter,
-              test_shared_docling_worker, test_resplit_plan_and_roots, test_figure_links,
+              test_shared_docling_worker, test_shared_worker_merge_and_disabled, test_pdf_roots_walked_once,
+              test_resplit_plan_and_roots, test_figure_links,
               test_resplit_failure_exits_1, test_index_end_to_end, test_listing_and_bookkeeping):
         try:
             t()

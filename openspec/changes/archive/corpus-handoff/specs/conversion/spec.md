@@ -37,7 +37,7 @@ already exists it SHALL NOT be written, whatever its content.
 - `corpus.json` is never written by `--batch-dir`, `--batch` or single-file conversion.
 - An existing `<out>/corpus.json` is never overwritten, deleted, or rewritten to normalize it.
 
-### Requirement: `post_convert.py --index` hands the corpus to vault-search and never indexes itself
+### Requirement: `post_convert.py --index` hands the corpus to ask-your-library and never indexes itself
 
 `post_convert.py --index [--corpus DIR]` SHALL choose exactly one route, in this order
 (`<root>` = `--corpus DIR`, default `OUTPUT_DIR`):
@@ -48,8 +48,8 @@ already exists it SHALL NOT be written, whatever its content.
 2. else `VAULT_SEARCH_DIR` set and `<VAULT_SEARCH_DIR>/server/corpus.py` exists — run
    `<python> <VAULT_SEARCH_DIR>/server/corpus.py add <root>`, where `<python>` is
    `VAULT_SEARCH_PY` when set, else the current interpreter; exit with that process's exit code.
-3. else — run nothing, print `[skip]` and the exact command to run once vault-search is
-   installed (`python <VAULT_SEARCH_DIR or path/to/vault-search>/server/corpus.py add <root>`),
+3. else — run nothing, print `[skip]` and the exact command to run once ask-your-library is
+   installed (`python <VAULT_SEARCH_DIR or path/to/ask-your-library>/server/corpus.py add <root>`),
    exit 0.
 
 The full pipeline (no flag) runs the same route after verification, `INDEX.md` and the
@@ -57,7 +57,7 @@ figure registry. The coverage audit (`--audit`, and the audit step of the full p
 only on route 1; on routes 2 and 3 it prints `[skip]` and that the audit is part of
 `corpus.py add`.
 
-#### Scenario: vault-search checkout configured
+#### Scenario: ask-your-library checkout configured
 - **GIVEN** `INDEXER_SCRIPT` unset, `VAULT_SEARCH_DIR=<vs>` with `<vs>/server/corpus.py`
 - **WHEN** `post_convert.py --index --corpus <root>` runs
 - **THEN** exactly one subprocess runs, with argv `[<python>, <vs>/server/corpus.py, "add", <root>]`
@@ -74,21 +74,21 @@ only on route 1; on routes 2 and 3 it prints `[skip]` and that the audit is part
 - **GIVEN** neither `INDEXER_SCRIPT` nor `VAULT_SEARCH_DIR` is set, and `<root>/corpus.json` exists
 - **WHEN** `post_convert.py --index --corpus <root>` runs
 - **THEN** no subprocess runs, stdout contains `[skip]` and the command
-  `python "<path/to/vault-search>/server/corpus.py" add "<root>"`, exit 0
+  `python "<path/to/ask-your-library>/server/corpus.py" add "<root>"`, exit 0
 
 #### Scenario: nothing configured and the root is not a corpus yet (failure case)
 - **GIVEN** as above, but `<root>/corpus.json` is absent (e.g. the default `OUTPUT_DIR`)
 - **WHEN** `post_convert.py --index` runs
 - **THEN** no subprocess runs, stdout contains `[skip]`, the command
   `--resplit "<root>" --out "<CORPUS_ROOT>"` and the command
-  `python "<path/to/vault-search>/server/corpus.py" add "<CORPUS_ROOT>"`, exit 0
+  `python "<path/to/ask-your-library>/server/corpus.py" add "<CORPUS_ROOT>"`, exit 0
 
-#### Scenario: VAULT_SEARCH_DIR is not a vault-search checkout (failure case)
+#### Scenario: VAULT_SEARCH_DIR is not an ask-your-library checkout (failure case)
 - **GIVEN** `INDEXER_SCRIPT` unset, `VAULT_SEARCH_DIR=<d>` with no `<d>/server/corpus.py`
   (e.g. an old index cache dir)
 - **WHEN** `post_convert.py --index` runs
 - **THEN** no subprocess runs, stdout contains `[skip]`, the path `<d>` and the words
-  `vault-search checkout`, exit 0
+  `ask-your-library checkout`, exit 0
 
 #### Negative constraints
 - `post_convert.py` never imports `lancedb` or opens an index on routes 2 and 3.

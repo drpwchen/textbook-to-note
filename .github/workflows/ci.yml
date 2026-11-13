@@ -32,6 +32,9 @@ jobs:
           python test_table_fixes.py
           python test_table_merge.py
           python test_surya_ocr.py
+          python test_resplit.py
+          python test_corpus_handoff.py
+          python test_private_upport.py
       - name: Run figures contract tests
         shell: bash
         working-directory: figures

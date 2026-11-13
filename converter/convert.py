@@ -1095,6 +1095,7 @@ def _release_plumber_page(page) -> None:
 
 
 _SHARED_TABLE_WORKER = None
+_SHARED_TABLE_LEASE = None
 
 
 def shared_table_worker():
@@ -1103,15 +1104,33 @@ def shared_table_worker():
     that cold start once per book if each convert_pdf() built its own. The worker keeps its
     model in VRAM for its whole lifetime, so the GPU lease lives exactly as long: acquired
     before the worker exists, released at process exit (a crashed holder is reaped by the
-    broker). Without a broker the lease is a no-op."""
-    global _SHARED_TABLE_WORKER
+    broker). Without a broker the lease is a no-op.
+
+    None as well under T2N_TABLE_MERGE=1: convert_pdf() does not use Docling then, and a worker
+    built anyway would hold the GPU lease for the whole run for nothing.
+
+    A worker that has disabled itself (repeated restart failures, docling_tables) is replaced
+    by a fresh one for the next book, under the same lease. A per-book worker started every
+    book fresh; without this, one bad book would silently send every later book of the run to
+    pdfplumber."""
+    global _SHARED_TABLE_WORKER, _SHARED_TABLE_LEASE
     if os.environ.get("T2N_DOCLING", "0") != "1" or DoclingTableWorker is None:
         return None
+    if os.environ.get("T2N_TABLE_MERGE", "0") == "1":
+        return None
+    if _SHARED_TABLE_WORKER is not None and _SHARED_TABLE_WORKER.status().get("disabled"):
+        try:
+            _SHARED_TABLE_WORKER.close()
+        except Exception:
+            pass  # a dead worker failing to close must not stop the batch
+        _SHARED_TABLE_WORKER = None
     if _SHARED_TABLE_WORKER is None:
-        import atexit
-        _cm = _gpu_lease_ctx("t2n_docling")
-        _cm.__enter__()
-        atexit.register(lambda: _cm.__exit__(None, None, None))
+        if _SHARED_TABLE_LEASE is None:
+            import atexit
+            lease = _gpu_lease_ctx("t2n_docling")
+            lease.__enter__()
+            atexit.register(lambda: lease.__exit__(None, None, None))
+            _SHARED_TABLE_LEASE = lease
         _SHARED_TABLE_WORKER = DoclingTableWorker()
     return _SHARED_TABLE_WORKER
 

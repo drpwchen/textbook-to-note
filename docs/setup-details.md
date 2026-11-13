@@ -141,7 +141,7 @@ python converter/convert.py --batch-dir <BOOKS_DIR>
 # 2. re-split into the corpus root: per-book _manifest.json + root corpus.json
 python converter/convert.py --resplit <OUTPUT_DIR> --out <CORPUS_ROOT> --pdf-root <BOOKS_DIR>
 # 3. in ask-your-library's environment: validate, index, audit, print the env line
-python <vault-search>/server/corpus.py add <CORPUS_ROOT>
+python <ask-your-library>/server/corpus.py add <CORPUS_ROOT>
 ```
 
 - `<CORPUS_ROOT>` is a new directory, never `OUTPUT_DIR` itself (`--resplit`
@@ -152,7 +152,7 @@ python <vault-search>/server/corpus.py add <CORPUS_ROOT>
   as a corpus. `--resplit` writes `corpus.json` only when it is absent and
   never overwrites one. `python converter/split_manifest.py --validate
   <CORPUS_ROOT>/<Book>` checks one book's split.
-- `python <vault-search>/server/corpus.py check <CORPUS_ROOT>` validates
+- `python <ask-your-library>/server/corpus.py check <CORPUS_ROOT>` validates
   without indexing — run it first if the corpus is large.
 - After adding books, re-run steps 1–3; `--resplit` skips books whose output
   already exists (`--force` rebuilds).

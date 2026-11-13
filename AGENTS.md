@@ -167,7 +167,7 @@ searchable. The sequence:
 ```bash
 python converter/convert.py --batch-dir <BOOKS_DIR>                      # Step 4: books → OUTPUT_DIR
 python converter/convert.py --resplit <OUTPUT_DIR> --out <CORPUS_ROOT> --pdf-root <BOOKS_DIR>
-python <vault-search>/server/corpus.py add <CORPUS_ROOT>                 # run from ask-your-library's env
+python <ask-your-library>/server/corpus.py add <CORPUS_ROOT>                 # run from ask-your-library's env
 ```
 
 `--resplit` is not optional here: it writes the per-book `_manifest.json` and

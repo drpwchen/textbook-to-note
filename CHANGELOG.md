@@ -56,7 +56,9 @@ the docs use the new name. Env vars (`VAULT_SEARCH_DIR`, `VAULT_SEARCH_PY`) and 
   unchanged; the other books in the run convert as before.
 - **One Docling worker per batch run** (`T2N_DOCLING=1`): `--batch-dir` and `--batch` share one
   warm worker and one GPU lease across all books instead of paying the 4–12 s model load per
-  book. Output is unchanged.
+  book. A worker that gives up after repeated restart failures is replaced for the next book,
+  as a per-book worker would have been, and none is started under `T2N_TABLE_MERGE=1` (which
+  does not use Docling). Output is unchanged.
 - **Batch log line** also reports Docling tables, review-queue flags, sideways pages and the
   reliability flag per book.
 - **`verify` and `INDEX.md` list each guideline** under `_Guidelines/` as its own entry, and

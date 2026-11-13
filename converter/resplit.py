@@ -98,6 +98,19 @@ class PdfIndex:
                         self.by_name.setdefault(f.lower(), []).append(p)
                         self.by_stem.setdefault(norm_stem(Path(f).stem), []).append(p)
 
+    @classmethod
+    def combine(cls, parts) -> "PdfIndex":
+        """One index over several already-walked roots, in the given order — the same lookup
+        tables PdfIndex(roots) would build, without walking any root again."""
+        idx = cls([])
+        for part in parts:
+            idx.roots += part.roots
+            for k, v in part.by_name.items():
+                idx.by_name.setdefault(k, []).extend(v)
+            for k, v in part.by_stem.items():
+                idx.by_stem.setdefault(k, []).extend(v)
+        return idx
+
     def resolve_configured(self, value: str) -> Path | None:
         p = Path(value).expanduser()
         if p.is_absolute():
@@ -927,7 +940,10 @@ def ensure_corpus_marker(out: Path) -> None:
               file=sys.stderr)
 
 
-def run(corpus, out, pdf_roots, books=None, split_config=None, pdf_map=None, force=False) -> int:
+def run(corpus, out, pdf_roots, books=None, split_config=None, pdf_map=None, force=False,
+        pdf_index=None) -> int:
+    """`pdf_index`: a PdfIndex already built over `pdf_roots` (a caller resplitting book by book
+    passes one so the roots are walked once per run, not once per book)."""
     corpus, out = Path(corpus), Path(out)
     if not corpus.is_dir():
         print(f"[resplit] corpus not found: {corpus}", file=sys.stderr)
@@ -942,7 +958,7 @@ def run(corpus, out, pdf_roots, books=None, split_config=None, pdf_map=None, for
     config = load_json(cfg_path)
     pmap = load_json(pdf_map)
     print(f"[resplit] indexing PDFs under {len(pdf_roots)} root(s)…", flush=True)
-    idx = PdfIndex(pdf_roots)
+    idx = pdf_index if pdf_index is not None else PdfIndex(pdf_roots)
     report_path = out / REPORT_NAME
     report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
     # root-level files of the corpus (aliases, defaults, notes) — not generated bookkeeping

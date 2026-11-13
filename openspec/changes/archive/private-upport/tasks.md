@@ -35,7 +35,11 @@ Source of the up-port: the maintainer's private converter copy, diffed file by f
 - [x] Validator, private-old vs public-new on real PDFs (`--batch-dir`, then `--resplit-only`):
       byte-identical apart from intended differences (see CHANGELOG 0.8.1 / report)
 - [x] `pip install -e .` in a throwaway venv: the three commands run
-- [ ] Independent verifier pass (Tier 2)
+- [x] Independent verifier pass (Tier 2): ACCEPT WITH FIXES on 8a70e68; fixes applied —
+      no shared worker under `T2N_TABLE_MERGE=1`; a disabled shared worker is replaced for the
+      next book; each PDF root walked once per post_convert run (`PdfIndex.combine`);
+      test_resplit / test_corpus_handoff / test_private_upport added to CI;
+      ask-your-library wording in printed text, `CORPUS_FORMAT_URL` and doc placeholders
 
 ## Ship
 

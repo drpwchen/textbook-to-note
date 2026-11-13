@@ -510,7 +510,7 @@ already exists it SHALL NOT be written, whatever its content.
 - `corpus.json` is never written by `--batch-dir`, `--batch` or single-file conversion.
 - An existing `<out>/corpus.json` is never overwritten, deleted, or rewritten to normalize it.
 
-### Requirement: `post_convert.py --index` hands the corpus to vault-search and never indexes itself
+### Requirement: `post_convert.py --index` hands the corpus to ask-your-library and never indexes itself
 
 `post_convert.py --index [--corpus DIR]` SHALL, after the resplit chain of the requirement
 "`post_convert.py` keeps the corpus in step with the converted output", choose exactly one
@@ -522,8 +522,8 @@ route, in this order (`<root>` = `CORPUS_DIR`, which `--corpus DIR` sets):
 2. else `VAULT_SEARCH_DIR` set and `<VAULT_SEARCH_DIR>/server/corpus.py` exists — run
    `<python> <VAULT_SEARCH_DIR>/server/corpus.py add <root>`, where `<python>` is
    `VAULT_SEARCH_PY` when set, else the current interpreter; exit with that process's exit code.
-3. else — run nothing, print `[skip]` and the exact command to run once vault-search is
-   installed (`python <VAULT_SEARCH_DIR or path/to/vault-search>/server/corpus.py add <root>`),
+3. else — run nothing, print `[skip]` and the exact command to run once ask-your-library is
+   installed (`python <VAULT_SEARCH_DIR or path/to/ask-your-library>/server/corpus.py add <root>`),
    exit 0.
 
 The full pipeline (no flag) runs the same route after verification, `INDEX.md` and the
@@ -531,7 +531,7 @@ figure registry. The coverage audit (`--audit`, and the audit step of the full p
 only on route 1; on routes 2 and 3 it prints `[skip]` and that the audit is part of
 `corpus.py add`.
 
-#### Scenario: vault-search checkout configured
+#### Scenario: ask-your-library checkout configured
 - **GIVEN** `INDEXER_SCRIPT` unset, `VAULT_SEARCH_DIR=<vs>` with `<vs>/server/corpus.py`
 - **WHEN** `post_convert.py --index --corpus <root>` runs
 - **THEN** exactly one subprocess runs, with argv `[<python>, <vs>/server/corpus.py, "add", <root>]`
@@ -548,21 +548,21 @@ only on route 1; on routes 2 and 3 it prints `[skip]` and that the audit is part
 - **GIVEN** neither `INDEXER_SCRIPT` nor `VAULT_SEARCH_DIR` is set, and `<root>/corpus.json` exists
 - **WHEN** `post_convert.py --index --corpus <root>` runs
 - **THEN** no subprocess runs, stdout contains `[skip]` and the command
-  `python "<path/to/vault-search>/server/corpus.py" add "<root>"`, exit 0
+  `python "<path/to/ask-your-library>/server/corpus.py" add "<root>"`, exit 0
 
 #### Scenario: nothing configured and the root is not a corpus yet (failure case)
 - **GIVEN** as above, but `<root>/corpus.json` is absent (e.g. a `CORPUS_DIR` no book has been resplit into yet)
 - **WHEN** `post_convert.py --index` runs
 - **THEN** no subprocess runs, stdout contains `[skip]`, the command
   `--resplit "<root>" --out "<CORPUS_ROOT>"` and the command
-  `python "<path/to/vault-search>/server/corpus.py" add "<CORPUS_ROOT>"`, exit 0
+  `python "<path/to/ask-your-library>/server/corpus.py" add "<CORPUS_ROOT>"`, exit 0
 
-#### Scenario: VAULT_SEARCH_DIR is not a vault-search checkout (failure case)
+#### Scenario: VAULT_SEARCH_DIR is not an ask-your-library checkout (failure case)
 - **GIVEN** `INDEXER_SCRIPT` unset, `VAULT_SEARCH_DIR=<d>` with no `<d>/server/corpus.py`
   (e.g. an old index cache dir)
 - **WHEN** `post_convert.py --index` runs
 - **THEN** no subprocess runs, stdout contains `[skip]`, the path `<d>` and the words
-  `vault-search checkout`, exit 0
+  `ask-your-library checkout`, exit 0
 
 #### Negative constraints
 - `post_convert.py` never imports `lancedb` or opens an index on routes 2 and 3.
@@ -637,15 +637,29 @@ contiguous run, rejected when either side holds fewer than `COLUMN_MIN_LINES` (2
 
 ### Requirement: One Docling worker serves a whole batch run
 
-With `T2N_DOCLING=1`, `--batch-dir` and `--batch` SHALL create at most one Docling worker per
-process and pass it to every `convert_pdf()` call; the GPU lease `t2n_docling` SHALL be held
-from just before the worker is created until process exit. With `T2N_DOCLING` unset no worker
-and no lease are created. Converted output SHALL be identical to building a worker per book.
+With `T2N_DOCLING=1`, `--batch-dir` and `--batch` SHALL keep one live Docling worker per
+process and pass it to every `convert_pdf()` call; the GPU lease `t2n_docling` SHALL be taken
+once, just before the first worker is created, and held until process exit. When the worker
+reports `disabled` (it gave up after repeated restart failures), the next book SHALL get a
+freshly created worker under the same lease, as a per-book worker would have been. With
+`T2N_DOCLING` unset, or with `T2N_TABLE_MERGE=1` (where `convert_pdf()` does not use Docling),
+no worker and no lease are created. Converted output SHALL be identical to building a worker
+per book.
 
 #### Scenario: two books, Docling on
 - **GIVEN** `T2N_DOCLING=1` and a batch of two PDFs
 - **WHEN** the batch runs
 - **THEN** the worker constructor is called once and both `convert_pdf()` calls receive it
+
+#### Scenario: the shared worker disabled itself (failure case)
+- **GIVEN** the shared worker's `status()` reports `disabled`
+- **WHEN** the next book asks for the worker
+- **THEN** the old worker is closed, a new one is created and returned, and no second lease is
+  taken
+
+#### Scenario: cross-page merge on
+- **GIVEN** `T2N_DOCLING=1` and `T2N_TABLE_MERGE=1`
+- **THEN** no worker is created and no lease is taken
 
 #### Scenario: Docling off (failure case: nothing to share)
 - **GIVEN** `T2N_DOCLING` unset
@@ -665,8 +679,8 @@ overrides) as the resplit target of `OUTPUT_DIR`:
   (forced rebuild). Up-to-date books are not planned.
 - `run_resplit()`: each planned book is resplit with `--pdf-root` = the folder(s) of the PDFs
   named by its `full_text.md` `Source:` lines that exist, else the `T2N_PDF_ROOTS` folders
-  (`os.pathsep`-separated; default `BOOKS_DIR`) that exist. A book whose manifest is still
-  missing afterwards is a failure.
+  (`os.pathsep`-separated; default `BOOKS_DIR`) that exist. Each root is walked at most once
+  per run. A book whose manifest is still missing afterwards is a failure.
 - `ensure_figure_links()`: every `figures*` / `images` folder of a book (names containing
   `.bak` or `undo` excluded) is linked into `CORPUS_DIR/<book>/` (a junction on Windows, a
   symlink elsewhere); an existing entry is left alone; a link that cannot be made is a failure.
@@ -702,7 +716,7 @@ chain and behave as in 0.8.1.
 #### Negative constraints
 - MUST NOT write under `OUTPUT_DIR` other than `INDEX.md` (the resplit guarantee applies).
 - MUST NOT copy figure files into `CORPUS_DIR`.
-- MUST NOT import any vault-search module.
+- MUST NOT import any ask-your-library module.
 
 ### Requirement: Guidelines are listed one by one in verification and INDEX.md
 

@@ -1,23 +1,23 @@
 """
-Post-conversion: verify, INDEX.md, keep the corpus in step, hand it to vault-search.
+Post-conversion: verify, INDEX.md, keep the corpus in step, hand it to ask-your-library.
 Run AFTER batch-dir conversion completes.
 
 Usage:
     python post_convert.py          # Full pipeline: verify + INDEX.md + figure registry + resplit + hand-off
     python post_convert.py --verify # Only verify conversion quality
     python post_convert.py --resplit-only [--corpus DIR]  # Only re-split new / re-converted books into DIR
-    python post_convert.py --index [--corpus DIR]  # Resplit into DIR, link figures, hand DIR to vault-search
-    python post_convert.py --backfill [--corpus DIR]  # Only the hand-off (vault-search re-indexes + audits)
+    python post_convert.py --index [--corpus DIR]  # Resplit into DIR, link figures, hand DIR to ask-your-library
+    python post_convert.py --backfill [--corpus DIR]  # Only the hand-off (ask-your-library re-indexes + audits)
     python post_convert.py --audit  # Only report index coverage (legacy INDEXER_SCRIPT route only)
 
 Flow: OUTPUT_DIR (converted books) --resplit--> CORPUS_DIR (default ./corpus; a t2n-corpus/1
-folder with per-book _manifest.json and a root corpus.json) --vault-search corpus.py add-->
+folder with per-book _manifest.json and a root corpus.json) --ask-your-library corpus.py add-->
 searchable. A book is re-split when it is new to CORPUS_DIR or its markdown is newer than its
 manifest; its figure folders are linked (not copied) into CORPUS_DIR.
 
-This repo does not index anything. Making a corpus searchable is vault-search's job:
-    python <vault-search>/server/corpus.py add <CORPUS_DIR>
-`--index` runs that command when VAULT_SEARCH_DIR points at a vault-search checkout
+This repo does not index anything. Making a corpus searchable is ask-your-library's job:
+    python <ask-your-library>/server/corpus.py add <CORPUS_DIR>
+`--index` runs that command when VAULT_SEARCH_DIR points at an ask-your-library checkout
 (VAULT_SEARCH_PY = its interpreter, if different). With nothing set it prints the command
 and exits 0. INDEXER_SCRIPT (an indexer with an --incremental/--book CLI) still works but
 is deprecated; while it is set, the resplit chain is skipped and 0.8.0 behaviour applies.
@@ -203,11 +203,16 @@ def run_resplit(plan, corpus: Path = None) -> list[str]:
         return []
     import resplit
     failed = []
+    walked = {}  # root -> PdfIndex: each PDF root is walked once per run, not once per book
     for book, force in plan:
         print(f"  [resplit] {book}{' (force: re-converted)' if force else ''} ...", flush=True)
         try:
-            rc = resplit.run(OUTPUT_BASE, corpus, [str(r) for r in pdf_roots_for(book)],
-                             books=[book], force=force)
+            roots = [str(r) for r in pdf_roots_for(book)]
+            for r in roots:
+                if r not in walked:
+                    walked[r] = resplit.PdfIndex([r])
+            idx = resplit.PdfIndex.combine(walked[r] for r in roots)
+            rc = resplit.run(OUTPUT_BASE, corpus, roots, books=[book], force=force, pdf_index=idx)
         except Exception as e:  # noqa: BLE001 — one book never aborts the chain
             print(f"  [FAIL] resplit {book}: {type(e).__name__}: {e}", flush=True)
             failed.append(book)
@@ -279,17 +284,17 @@ def refresh_corpus(corpus: Path) -> list[str]:
     return failures
 
 
-CORPUS_FORMAT_URL = "https://github.com/drpwchen/vault-search/blob/main/docs/corpus-format.md"
+CORPUS_FORMAT_URL = "https://github.com/drpwchen/ask-your-library/blob/main/docs/corpus-format.md"
 
 
 def corpus_add_command(root: Path) -> str:
     script = (Path(VAULT_SEARCH_DIR) / "server" / "corpus.py" if VAULT_SEARCH_DIR
-              else "<path/to/vault-search>/server/corpus.py")
+              else "<path/to/ask-your-library>/server/corpus.py")
     return f'python "{script}" add "{root}"'
 
 
 def _corpus_script():
-    """vault-search's corpus CLI when VAULT_SEARCH_DIR is a checkout that has one, else None."""
+    """ask-your-library's corpus CLI when VAULT_SEARCH_DIR is a checkout that has one, else None."""
     if not VAULT_SEARCH_DIR:
         return None
     p = VAULT_SEARCH_DIR / "server" / "corpus.py"
@@ -310,13 +315,13 @@ def run_legacy_indexer():
 
 def warn_indexer_script_deprecated(root: Path):
     print("[deprecated] INDEXER_SCRIPT is deprecated and will be removed: this repo no longer "
-          "talks to an indexer CLI. Hand the corpus to vault-search's corpus.py add instead:\n"
+          "talks to an indexer CLI. Hand the corpus to ask-your-library's corpus.py add instead:\n"
           f"    {corpus_add_command(root)}\n"
           f"  (corpus format: {CORPUS_FORMAT_URL})", file=sys.stderr)
 
 
 def run_indexer(root: Path = None) -> int:
-    """Hand `root` to vault-search. Returns an exit code; 0 when nothing was run."""
+    """Hand `root` to ask-your-library. Returns an exit code; 0 when nothing was run."""
     root = Path(root) if root else OUTPUT_BASE
     print("\n=== Semantic search hand-off ===")
     if INDEXER_SCRIPT:
@@ -329,17 +334,17 @@ def run_indexer(root: Path = None) -> int:
         return subprocess.run([py, str(script), "add", str(root)]).returncode
     if VAULT_SEARCH_DIR:
         print(f"  [skip] VAULT_SEARCH_DIR={VAULT_SEARCH_DIR} has no server/corpus.py - it must "
-              f"point at a vault-search checkout (the repo, not an index directory).")
+              f"point at an ask-your-library checkout (the repo, not an index directory).")
     else:
-        print("  [skip] semantic search is opt-in and lives in vault-search; nothing was indexed.")
+        print("  [skip] semantic search is opt-in and lives in ask-your-library; nothing was indexed.")
     if (root / "corpus.json").exists():
-        print("  Once vault-search is installed, run:")
+        print("  Once ask-your-library is installed, run:")
         print(f"    {corpus_add_command(root)}")
     else:
         # not a --resplit output yet: show both steps, with a placeholder corpus root
         new_root = "<CORPUS_ROOT>"
         print(f"  {root} has no corpus.json - it is not a corpus yet. Re-split it into one, then "
-              "hand that to vault-search:")
+              "hand that to ask-your-library:")
         print(f'    python converter/convert.py --resplit "{root}" --out "{new_root}" --pdf-root <BOOKS_DIR>')
         print(f"    {corpus_add_command(new_root)}")
     print(f"  (corpus format: {CORPUS_FORMAT_URL})")
@@ -349,11 +354,11 @@ def run_indexer(root: Path = None) -> int:
 def audit_index_coverage(backfill: bool = True):
     """Legacy INDEXER_SCRIPT route only (deprecated): list book folders that have md but no
     rows in the v1 index (`<VAULT_SEARCH_DIR>/lance_db`, table `textbook_chunks`), and
-    (optionally) backfill each via `indexer --book`. vault-search's `corpus.py add` runs its
+    (optionally) backfill each via `indexer --book`. ask-your-library's `corpus.py add` runs its
     own audit, so on that route this step is skipped."""
     print("\n=== Index Coverage Audit ===")
     if not INDEXER_SCRIPT:
-        print("  [skip] the coverage audit is part of vault-search's `corpus.py add`")
+        print("  [skip] the coverage audit is part of ask-your-library's `corpus.py add`")
         return
     if not VAULT_SEARCH_DIR:
         print("  [skip] legacy audit needs VAULT_SEARCH_DIR (the index directory) - see shared/config.py")
@@ -442,14 +447,14 @@ def update_index_md():
 
 def main():
     parser = argparse.ArgumentParser(description="Post-conversion: verify, keep the corpus in step, "
-                                                 "hand it to vault-search")
+                                                 "hand it to ask-your-library")
     parser.add_argument("--verify", action="store_true", help="Only verify conversion quality")
     parser.add_argument("--resplit-only", action="store_true",
                         help="Only re-split new / re-converted books into the corpus (+ figure links)")
     parser.add_argument("--index", action="store_true",
-                        help="Resplit + figure links, then hand the corpus to vault-search (corpus.py add)")
+                        help="Resplit + figure links, then hand the corpus to ask-your-library (corpus.py add)")
     parser.add_argument("--backfill", action="store_true",
-                        help="Only the hand-off (vault-search re-indexes changed files and audits)")
+                        help="Only the hand-off (ask-your-library re-indexes changed files and audits)")
     parser.add_argument("--corpus", metavar="DIR",
                         help="corpus root (default CORPUS_DIR, ./corpus)")
     parser.add_argument("--audit", action="store_true",
@@ -463,7 +468,7 @@ def main():
         nonlocal handoff_rc
         handoff_rc = run_indexer(root)
         if handoff_rc:
-            failures.append(f"vault-search hand-off exited {handoff_rc}")
+            failures.append(f"ask-your-library hand-off exited {handoff_rc}")
 
     if args.verify:
         verify_conversion()
@@ -501,7 +506,7 @@ def main():
         print(f"\n[FAIL] {len(failures)} step(s) failed:")
         for f in failures:
             print(f"  - {f}")
-        only_handoff = failures == [f"vault-search hand-off exited {handoff_rc}"]
+        only_handoff = failures == [f"ask-your-library hand-off exited {handoff_rc}"]
         sys.exit(handoff_rc if only_handoff else 1)
 
 
