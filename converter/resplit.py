@@ -1008,7 +1008,7 @@ def run(corpus, out, pdf_roots, books=None, split_config=None, pdf_map=None, for
                 shutil.copyfile(p, out / p.name)
     tally = {}
     for d in sorted(corpus.iterdir(), key=lambda p: p.name.lower()):
-        if not d.is_dir() or d.name.startswith(".") or (books and d.name not in books):
+        if not d.is_dir() or sm.is_tooling_dir(d.name) or (books and d.name not in books):
             continue
         has_md = any(f.endswith(".md") for _, _, fn in os.walk(d) for f in fn)
         if not has_md:

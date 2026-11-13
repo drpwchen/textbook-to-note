@@ -158,11 +158,13 @@ def verify_conversion():
 
 
 def book_folders(root: Path) -> list[Path]:
-    """Top-level folders `--resplit` treats as books (_Guidelines is one of them)."""
+    """Top-level folders `--resplit` treats as books (_Guidelines is one of them; other `_`- and
+    `.`-folders are tooling)."""
     if not root.is_dir():
         return []
+    import split_manifest as sm
     return sorted(d for d in root.iterdir()
-                  if d.is_dir() and d.name not in SKIP_DIRS and not d.name.startswith("."))
+                  if d.is_dir() and d.name not in SKIP_DIRS and not sm.is_tooling_dir(d.name))
 
 
 def _newest_md(d: Path) -> float:

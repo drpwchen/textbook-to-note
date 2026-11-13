@@ -304,7 +304,8 @@ number no file carries, unless listed in `missing_chapters_ok`; books with
 two pages, punctuation and whitespace ignored, nor has ≥ 80% of its ≥3-letter words there);
 a file named in the manifest's `title_check_skip` {file: reason}, copied from the split config,
 is a `title_check_skipped` warning instead).
-Folders whose name starts with `.` are not books and are never validated.
+Folders whose name starts with `.`, or with `_` other than `_Guidelines`, are not books and are
+never validated (nor resplit, nor planned by `post_convert.py`).
 Exit code 0 when every book passes, 1 otherwise, 2 for a missing corpus.
 
 #### Scenario: Marker-only file

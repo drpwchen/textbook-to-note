@@ -326,9 +326,35 @@ def test_roots_from_chapter_sources():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_tooling_folders_skipped():
+    import split_manifest as sm
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        src, out = tmp / "md", tmp / "out"
+        for d in ("Book", "_Guidelines/G", "_figure_remap", "__pycache__", ".hidden"):
+            (src / d).mkdir(parents=True)
+            (src / d / "ch01_A.md").write_text("<!-- page 1 -->\nSome text here.\n", encoding="utf-8")
+        with patched(pc, OUTPUT_BASE=src):
+            names = [d.name for d in pc.book_folders(src)]
+        check("tooling: post_convert lists Book and _Guidelines only", sorted(names) == ["Book", "_Guidelines"], names)
+        names = [d.name for d in sm.book_dirs(src)]
+        check("tooling: validator lists Book and _Guidelines only", sorted(names) == ["Book", "_Guidelines"], names)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            rs.run(src, out, [str(tmp / "nopdfs")])
+        made = sorted(d.name for d in out.iterdir() if d.is_dir())
+        check("tooling: --resplit writes no corpus folder for _figure_remap / __pycache__ / .hidden",
+              made == ["Book", "_Guidelines"], made)
+        check("tooling: is_tooling_dir", [sm.is_tooling_dir(n) for n in
+                                          ("_Guidelines", "_figure_remap", "__pycache__", ".git", "Book")]
+              == [False, True, True, True, False])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     for t in (test_config_dir, test_book_aliases, test_lazy_pdf_index, test_require_source_pdf,
-              test_require_source_pdf_no_full_text, test_roots_from_chapter_sources):
+              test_require_source_pdf_no_full_text, test_roots_from_chapter_sources,
+              test_tooling_folders_skipped):
         try:
             t()
         except Exception as e:  # noqa: BLE001

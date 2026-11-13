@@ -17,6 +17,14 @@
 - [x] Strict check over the real corpus lists 14 chapter-files-only books with no findable PDF
       (they need a `pdf` config entry)
 
+## Also in 0.8.2 (same area)
+
+- [x] `split_manifest.is_tooling_dir()`: `_`-folders other than `_Guidelines` are skipped by
+      `--resplit`, `post_convert.book_folders()` and `--validate`. Real corpus: post_convert
+      289 → 288 folders (drops `_figure_remap`), validator on textbook-md 291 → 289 (drops
+      `_figure_remap`, `__pycache__`), validator on textbook-md-v2 285 → 285. Test
+      `test_tooling_folders_skipped`; mutation (rule reverted to `.` only) → 4 fail.
+
 ## Ship
 
 - [x] `CHANGELOG.md` 0.8.2; tag `v0.8.2` moved (unpublished)

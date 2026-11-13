@@ -31,6 +31,10 @@ loose semantic versioning.
 - **`T2N_REQUIRE_SOURCE_PDF=1` also covers books with no `full_text.md`**: one with no findable
   PDF is a `[FAIL]` with the fix (a `pdf` entry in `<corpus>/_split_config.json`, or `--pdf-map`)
   instead of being carried. Unset, nothing changes.
+- **`_`-folders other than `_Guidelines` are not books**: `--resplit`, `post_convert.py` and
+  `--validate` skip them (`_figure_remap`, `__pycache__`, …), as ask-your-library's indexer
+  does. On the author's corpus this drops exactly `_figure_remap` (and `__pycache__` from
+  validation); no book is affected.
 - **The quickstart sample's `_split_config.json`** only renames `Glossary` → `Key Terms`; the
   chapter level it used to set is found automatically. The quickstart's commands and output are
   unchanged.

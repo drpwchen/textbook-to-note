@@ -705,10 +705,20 @@ def validate_book(book_dir: Path, manifest: dict | None = None, figures_root=Non
     return res
 
 
+GUIDELINES_DIR = "_Guidelines"
+
+
+def is_tooling_dir(name: str) -> bool:
+    """A top-level corpus folder that is not a book: `.`-folders, and `_`-folders other than
+    `_Guidelines` (`_figure_remap`, `__pycache__`, …) — the convention ask-your-library's
+    indexer uses too."""
+    return name.startswith(".") or (name.startswith("_") and name != GUIDELINES_DIR)
+
+
 def book_dirs(corpus: Path, only=None) -> list[Path]:
     out = []
     for d in sorted(corpus.iterdir(), key=lambda p: p.name.lower()):
-        if not d.is_dir() or d.name.startswith("."):
+        if not d.is_dir() or is_tooling_dir(d.name):
             continue
         if only and d.name not in only:
             continue
