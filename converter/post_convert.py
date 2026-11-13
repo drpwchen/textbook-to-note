@@ -335,8 +335,8 @@ def _is_link(p: Path) -> bool:
 def ensure_figure_links(corpus: Path = None, dry_run: bool = False) -> list[str]:
     """--resplit never copies figures; CORPUS_DIR/<book>/<figures*> links to the OUTPUT_DIR
     folder instead (one copy of the images). A junction on Windows (no privilege needed), a
-    symlink elsewhere. Re-run after a --force resplit, which rebuilds the book folder (removing
-    a link never touches its target). Returns the links that could not be created."""
+    symlink elsewhere. A --force resplit moves existing links into the rebuilt book folder
+    (0.8.3); this only creates the missing ones. Returns the links that could not be created."""
     corpus = Path(corpus) if corpus else CORPUS_DIR
     print(f"\n=== Figure links ({corpus} -> {OUTPUT_BASE}) ===")
     made, failed = 0, []

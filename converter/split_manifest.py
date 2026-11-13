@@ -243,6 +243,50 @@ def promote_keyword_chapters(entries, chapter_level: int | None, regex: str | No
     return levels, promoted
 
 
+def promote_gap_chapters(entries, levels, chapter_level: int | None, regex: str | None = None):
+    """Bare-numbered chapters (`3 Paralysis and Weakness`) at another level, accepted only when
+    they fill a gap in the chapter-level numbering exactly.
+
+    entries: [(level, title, pdf_page | None)] in outline order; levels: the levels in force
+    (after promote_keyword_chapters). Between two consecutive numbered chapter-level entries
+    a < b with b - a > 1, if one other level holds numbered entries that are exactly a+1 … b-1
+    in outline order, on pages not lower than a's and not higher than b's, each of them moves
+    to the chapter level with its subtree. Returns (levels, promoted)."""
+    levels = list(levels)
+    if chapter_level is None:
+        return levels, 0
+    nums = [parse_chapter_number(e[1], regex) for e in entries]
+    anchors = [i for i, lv in enumerate(levels) if lv == chapter_level and nums[i] is not None]
+    promoted = 0
+    for ia, ib in zip(anchors, anchors[1:]):
+        a, b = nums[ia], nums[ib]
+        if b - a <= 1:
+            continue
+        lo = entries[ia][2] if entries[ia][2] is not None else 0
+        hi = entries[ib][2]
+        between = range(ia + 1, ib)
+        cand_levels = sorted({levels[i] for i in between
+                              if levels[i] != chapter_level and nums[i] is not None})
+        for lvl in cand_levels:
+            run = [i for i in between if levels[i] == lvl and nums[i] is not None]
+            if [nums[i] for i in run] != list(range(a + 1, b)):
+                continue
+            pages = [entries[i][2] for i in run]
+            if any(p is None or p < lo or (hi is not None and p > hi) for p in pages) or \
+                    pages != sorted(pages):
+                continue
+            delta = chapter_level - lvl
+            for i in run:
+                j = i + 1
+                while j < ib and levels[j] > lvl:
+                    levels[j] = max(1, levels[j] + delta)
+                    j += 1
+                levels[i] = chapter_level
+                promoted += 1
+            break
+    return levels, promoted
+
+
 def chapter_state_walk(entries, chapter_level: int | None, regex: str | None = None):
     """For each outline entry (level, title) in order, the chapter number in force at it:
     its own number at the chapter level, inherited below it, None above it."""

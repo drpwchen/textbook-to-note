@@ -545,11 +545,94 @@ def test_cross_level_chapters():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_gap_chapters():
+    gap = sm.promote_gap_chapters
+    # Ropper shape: 3-4 one Section deeper between chapter-level 2 and 5
+    e = [(2, "1 Approach", 14), (2, "2 Testing", 24), (2, "SECTION 1 Motility", 64),
+         (3, "3 Paralysis", 65), (4, "Overview", 65), (3, "4 Movement", 81),
+         (1, "PART 3", 590), (2, "5 Development", 592)]
+    lv, n = gap(e, [x[0] for x in e], 2)
+    check("gap: 3 and 4 promoted", n == 2 and lv == [2, 2, 2, 2, 3, 2, 1, 2], (n, lv))
+    sub = [(2, "1 Gait", 3), (3, "1 Intro", 4), (3, "2 Methods", 5), (2, "3 Spasticity", 9)]
+    check("gap: subsections 1,2 inside a 1→3 gap stay", gap(sub, [x[0] for x in sub], 2)[1] == 0)
+    part = [(2, "1 Gait", 3), (3, "2 Balance", 6), (3, "4 Extra", 7), (2, "3 Spasticity", 9)]
+    check("gap: run that overshoots the gap stays", gap(part, [x[0] for x in part], 2)[1] == 0)
+    back = [(2, "1 Gait", 5), (3, "2 Balance", 3), (2, "3 Spasticity", 9)]
+    check("gap: page before the previous chapter stays", gap(back, [x[0] for x in back], 2)[1] == 0)
+    check("gap: no chapter level → nothing", gap(e, [x[0] for x in e], None)[1] == 0)
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        toc = [[1, "Part I", 3], [2, "1 Gait", 3], [2, "Section A", 5], [3, "2 Balance", 6],
+               [4, "Overview", 6], [2, "3 Spasticity", 9], [1, "Index", 12]]
+        books = {b: {"full_text.md": make_full_text()} for b in ("Gap", "Hand")}
+        corpus, pdf_root, out = build(tmp, books, {"Gap": toc, "Hand": toc})
+        out.mkdir()
+        (out / "_split_config.json").write_text(json.dumps({
+            "Gap": {"chapter_level": 2, "reason": "fixture has only 2 chapter-level numbers"},
+            "Hand": {"chapter_level": 2, "chapter_number_overrides": {"no_such_file.md": 9},
+                     "reason": "t"}}),
+            encoding="utf-8")
+        run(corpus, out, [pdf_root])
+        by = {f["chapter_number"]: f for f in manifest(out, "Gap")["files"] if f["chapter_number"]}
+        check("gap resplit: chapter 2 file starts p6", by.get(2, {}).get("pdf_page_start") == 6, by)
+        check("gap resplit: chapter 1 ends before Section A",
+              by.get(1, {}).get("pdf_page_end") == 4, by)
+        check("gap resplit: validates", sm.validate_book(out / "Gap")["ok"],
+              sm.validate_book(out / "Gap")["errors"])
+        rep = json.loads((out / "_resplit_report.json").read_text(encoding="utf-8"))
+        check("gap resplit: report counts promotion", "promoted_chapters" in json.dumps(rep["Gap"]))
+        check("gap resplit: overrides key → never promoted",
+              "promoted_chapters" not in json.dumps(rep["Hand"]), rep["Hand"])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_force_keeps_figure_dirs():
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        corpus, pdf_root, out = build(tmp, {"BookA": {"full_text.md": make_full_text()}},
+                                      {"BookA": [[1, "Chapter 1 Gait", 3], [1, "Chapter 2 Balance", 6],
+                                                 [1, "Chapter 3 Spasticity", 9]]})
+        run(corpus, out, [pdf_root])
+        target = tmp / "converted_figures"
+        (target / "sub").mkdir(parents=True)
+        (target / "sub" / "fig1.png").write_bytes(b"png")
+        link = out / "BookA" / "figures"
+        if os.name == "nt":
+            import subprocess
+            subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)],
+                           capture_output=True, check=True)
+        else:
+            os.symlink(target, link, target_is_directory=True)
+        real = out / "BookA" / "images"
+        real.mkdir()
+        (real / "only_copy.png").write_bytes(b"img")
+        stray = out / "BookA" / "notes_by_hand"
+        stray.mkdir()
+        code, log = run(corpus, out, [pdf_root], force=True)
+        check("force keep: run ok", code == 0, log)
+        check("force keep: figures link still a link",
+              rs._is_dir_link(link) and (link / "sub" / "fig1.png").read_bytes() == b"png")
+        check("force keep: link target untouched", (target / "sub" / "fig1.png").exists())
+        check("force keep: real images folder kept", (real / "only_copy.png").read_bytes() == b"img")
+        check("force keep: other folders still rebuilt", not stray.exists())
+        check("force keep: no .tmp left", not any(p.name.startswith(".tmp-") for p in out.iterdir()))
+        rep = json.loads((out / "_resplit_report.json").read_text(encoding="utf-8"))
+        check("force keep: report lists kept dirs",
+              rep["BookA"].get("kept_dirs") == ["figures", "images"], rep["BookA"].get("kept_dirs"))
+        check("force keep: still validates", sm.validate_book(out / "BookA")["ok"],
+              sm.validate_book(out / "BookA")["errors"])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     for t in (test_helpers, test_page_labels_and_writeback, test_resplit_normal, test_same_as_conversion,
               test_unsafe_and_missing_pdf, test_anchoring_config, test_reconstruct_and_overrides,
               test_deep_headings, test_dot_folders_skipped, test_underscore_book_config, test_override_reclassifies_front, test_config_toc,
-              test_validator_negatives, test_cross_level_chapters):
+              test_validator_negatives, test_cross_level_chapters, test_gap_chapters,
+              test_force_keeps_figure_dirs):
         try:
             t()
         except Exception as e:  # noqa: BLE001

@@ -566,6 +566,10 @@ def resplit_unit(src_unit: Path, out_unit: Path, rel_prefix: str, pdf: Path | No
             if pre_level is not None and pre_level <= split_levels:
                 new_levels, promoted = sm.promote_keyword_chapters(entries, pre_level,
                                                                    cfg.get("chapter_regex"))
+                # bare-numbered chapters (`3 Paralysis…`) only where they fill a numbering gap
+                new_levels, gap = sm.promote_gap_chapters(entries, new_levels, pre_level,
+                                                          cfg.get("chapter_regex"))
+                promoted += gap
                 if promoted:
                     info["promoted_chapters"] = promoted
                     entries = [[lv, e[1], e[2]] for lv, e in zip(new_levels, entries)]
@@ -920,8 +924,12 @@ def resplit_book(src: Path, out_root: Path, idx: PdfIndex, config: dict, pdf_map
     res["writeback_pdfs"] = sorted(ctx["writeback"])
     res["split_method"] = split_method
 
-    # 6. swap into place
+    # 6. swap into place; folders resplit never writes (figures*, images, … — often a link to
+    # the converted book's figures) move over to the new folder instead of being deleted
     if final.exists():
+        kept = carry_unowned_dirs(final, tmp)
+        if kept:
+            res["kept_dirs"] = kept
         shutil.rmtree(final)
     os.replace(tmp, final)
     v = sm.validate_book(final)
@@ -930,6 +938,31 @@ def resplit_book(src: Path, out_root: Path, idx: PdfIndex, config: dict, pdf_map
     res["error_count"] = len(v["errors"])
     res["stats"] = v["stats"]
     return res
+
+
+def _is_dir_link(p: Path) -> bool:
+    is_junction = getattr(p, "is_junction", None)  # Python 3.12+
+    return p.is_symlink() or bool(is_junction and is_junction())
+
+
+def carry_unowned_dirs(old: Path, new: Path) -> list[str]:
+    """Move every folder under `old` whose name resplit never writes (sm.SKIP_DIR_RE: figures*,
+    images, …) to the same place under `new`, unless `new` already has that path. A link
+    (junction / symlink) moves as a link — its target is never opened. Returns the moved paths."""
+    moved = []
+    for dp, dn, _ in os.walk(old):
+        keep = [d for d in dn if sm.SKIP_DIR_RE.search(d)]
+        dn[:] = [d for d in dn if d not in keep and not _is_dir_link(Path(dp) / d)]
+        for d in keep:
+            src = Path(dp) / d
+            rel = src.relative_to(old)
+            dst = new / rel
+            if dst.exists() or _is_dir_link(dst):
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(src, dst)
+            moved.append(rel.as_posix())
+    return sorted(moved)
 
 
 def _carried_number(rel: str, per_chapter: bool):

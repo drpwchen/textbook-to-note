@@ -8,6 +8,27 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [0.8.3] — 2026-11-14 — `--force` keeps figure links; bare-numbered chapters that fill a gap
+
+### Changed
+- **`--resplit --force` keeps a book's `figures*` / `images` folders.** `post_convert.py` links
+  each corpus book's figure folder to the converted book (a junction on Windows); a forced
+  resplit deleted the old book folder and the link with it, so every image in that book was
+  unreachable until the links were recreated by hand (a real `figures` folder was simply
+  lost). Folders resplit never writes (`figures*`, `images`, `_epub_src`, `*.bak`, …) now move
+  into the rebuilt folder — links as links, targets never opened — and the run report lists
+  them as `kept_dirs`. Everything resplit writes is unchanged. Checked on a real book with 476
+  linked figures. Spec: `openspec/changes/archive/resplit-force-keeps-figures/`.
+- **A bare-numbered chapter one level off is split as a chapter when it fills a numbering
+  gap.** 0.8.0 moved `Chapter N` entries to the chapter level; `3 Paralysis and Weakness` was
+  left alone because section numbers look the same. Now, between chapter-level entries `a` and
+  `b`, entries at one other level numbered exactly `a+1 … b−1` (in order, on pages between
+  theirs) are chapters too. Adams & Victor's Neurology (chapters 3–26 one Section deeper)
+  splits with no config at all: every one of its 1,616 pages gets the same chapter number as
+  the 24 hand-written overrides gave. Full corpus resplit before/after: 288 books, 19,128
+  files, 0 changed (books with `chapter_number_overrides` are still never promoted).
+  Spec: `openspec/changes/archive/resplit-gap-chapters/`.
+
 ## [0.8.2] — 2026-11-14 — Few-chapter PDFs split without config; lost chapter numbers fail; opt-in glossary pairing
 
 ### Added
