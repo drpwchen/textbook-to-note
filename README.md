@@ -6,6 +6,8 @@ Turn your own PDF textbooks into an AI-searchable knowledge base and structured,
 
 [繁體中文說明 → README.zh-TW.md](README.zh-TW.md)
 
+**New here? → [5-minute quickstart](examples/quickstart.md)**: convert a bundled sample chapter and have Claude answer from it with page citations. Skills as a plugin: [Install as a Claude Code plugin](#install-as-a-claude-code-plugin).
+
 ## Why I built this
 
 I've loved taking notes since med school, and over the years I've built up thousands of them — but I can no longer keep every one at the same quality by hand. In an age of information overload, trustworthy high-quality sources become the precious thing, and textbooks are among the best; yet my specialty alone has 40+ designated reference books, with a single concept scattered across chapters in many of them. Reading them all cover to cover just isn't realistic. LLMs are great at long context, but you can't dump hundreds of books on one at once — so the real unlock is pairing good search and a database with teaching the AI my own note-making process, so it produces grounded, structured notes I only have to absorb.
@@ -119,6 +121,17 @@ You're probably here to have *your* AI set this up — that's the intended path:
 
 [`AGENTS.md`](AGENTS.md) is written for the agent: dependency install, configuration, converting a first book, installing the two Claude Code skills, running the note workflow, plus token guardrails so a naive agent doesn't burn a million tokens reading a whole book into context.
 
+## Install as a Claude Code plugin
+
+The two skills also ship as a Claude Code plugin, and this repo is its own marketplace. In Claude Code:
+
+```
+/plugin marketplace add drpwchen/textbook-to-note
+/plugin install textbook-to-note@drpwchen
+```
+
+The skills load as `/textbook-to-note:textbook-to-md` and `/textbook-to-note:figure-remap` and point at the plugin's own copy of the scripts, so there is no `{REPO}` placeholder to replace. The plugin installs no Python packages: the skills run `python`, which needs the converter's dependencies (`pip install -r requirements.txt` from a clone). Semantic search is not part of the plugin — it is the optional ask-your-library step of the [quickstart](examples/quickstart.md#5--optional-semantic-search-with-ask-your-library-23-min).
+
 ## Repo layout
 
 ```
@@ -128,7 +141,7 @@ citations/    chapter-reference lint — proves every "Author Ch.N" points at a 
 skills/       drop-in Claude Code skill definitions (textbook-to-md, figure-remap)
 workflows/    the note-writing algorithm (adapt to your own note system)
 docs/         architecture, OCR ladder + hardware tiers, OCR adapter contract
-examples/     a sample output note showing the target format
+examples/     quickstart, a sample chapter to convert (OpenStax, CC BY 4.0), a sample output note
 shared/       env-driven configuration (config.py)
 ```
 
@@ -141,7 +154,7 @@ shared/       env-driven configuration (config.py)
 
 ## Bring your own books
 
-This tool ships **no textbook content**. It operates on PDFs you already own — purchased ebooks, institutional-access downloads, open-licensed texts ([OpenStax](https://openstax.org)), or scans of your own paper books where your local law permits. Respect your books' licenses.
+This tool ships **no textbook content** apart from one openly licensed sample chapter for the [quickstart](examples/quickstart.md) ([attribution](examples/sample/ATTRIBUTION.md)). It operates on PDFs you already own — purchased ebooks, institutional-access downloads, open-licensed texts ([OpenStax](https://openstax.org)), or scans of your own paper books where your local law permits. Respect your books' licenses.
 
 ## Related
 

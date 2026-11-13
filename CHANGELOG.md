@@ -56,6 +56,11 @@ the docs use the new name. Env vars (`VAULT_SEARCH_DIR`, `VAULT_SEARCH_PY`) and 
   works as before. The plugin installs no Python packages and no MCP server: Python
   dependencies are still `pip install -r requirements.txt`, and semantic search stays the
   optional ask-your-library step.
+- **5-minute quickstart** (`examples/quickstart.md`, English and 繁體中文, linked from the top of
+  both READMEs): convert the sample → `--resplit` → ask Claude Code from the corpus with page
+  citations → optionally `corpus.py add` and ask through `textbook_search`. Every step was run
+  end to end once on Windows 11; the page lists the measured times (convert 1.1 s, resplit
+  0.4 s for 33 pages).
 - **Sample book for a first run**: `examples/sample/` holds Chapter 1 of OpenStax *Anatomy and
   Physiology* (1st ed., CC BY 4.0; 33 pages, 2.2 MB; attribution in
   `examples/sample/ATTRIBUTION.md`) and a `_split_config.json` entry for it — a one-chapter
