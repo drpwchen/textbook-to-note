@@ -53,11 +53,10 @@ and `1/1 books pass`. `corpus/` now holds one file per section, a `_manifest.jso
 ranges, and `page_labels` mapping each PDF page to the printed page number) and a
 `corpus.json` marker.
 
-Why `--split-config`: `--resplit` detects which outline level holds the chapters from at
-least three numbered entries, and a one-chapter excerpt has one. The entry in
-[`sample/_split_config.json`](sample/_split_config.json) says so, with its reason — the same
-mechanism you use for a real book whose outline is wrong. Whole books normally need no
-config.
+Why `--split-config`: the outline names the excerpt's last section "Glossary", but the page
+itself is headed "KEY TERMS", so the validator's title check would not find it. The entry in
+[`sample/_split_config.json`](sample/_split_config.json) renames it, with its reason — the same
+mechanism you use for a real book whose outline is wrong. Most books need no config.
 
 ## 4 · Ask Claude Code (≈30 s)
 
@@ -185,9 +184,9 @@ python converter/split_manifest.py --validate corpus
 應該看到 `config valid 10 files`、`PASS` 和 `1/1 books pass`。`corpus/` 裡每節一個檔、一份
 `_manifest.json`（頁碼範圍，以及 PDF 頁 → 印刷頁碼的 `page_labels`）和 `corpus.json`。
 
-為什麼要 `--split-config`：`--resplit` 要看到至少三個編號章節才判斷得出哪一層書籤是「章」，
-單章節選只有一個。[`sample/_split_config.json`](sample/_split_config.json) 寫明這件事與理由——
-真實書籍書籤有錯時也是用同一個機制修。整本書通常不需要設定。
+為什麼要 `--split-config`：書籤把節選最後一節叫「Glossary」，頁面上的標題卻是「KEY TERMS」，
+validator 的標題檢查會找不到。[`sample/_split_config.json`](sample/_split_config.json) 把它改名並寫明
+理由——真實書籍書籤有錯時也是用同一個機制修。大多數書不需要設定。
 
 ### 4 · 問 Claude Code（約 30 秒）
 

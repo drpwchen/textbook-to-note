@@ -162,10 +162,17 @@ def choose_chapter_level(entries, regex: str | None = None, min_numbers: int = 3
 
     The chapter level is the outline level whose numbered titles are strictly increasing and
     most numerous (ties → the shallower level). A level whose numbers go backwards is never
-    chosen; if numbered levels exist but none increases, the reason says so."""
+    chosen; if numbered levels exist but none increases, the reason says so.
+
+    Fewer than `min_numbers` numbered titles everywhere (an excerpt, a one- or two-chapter PDF):
+    a level whose every numbered title is written `Chapter N` and increases is still the chapter
+    level — the title says so in words, which a bare `5 Stroke` does not. Only when no level
+    qualifies otherwise and none goes backwards."""
     by_level: dict[int, list] = {}
+    titles_by_level: dict[int, list] = {}
     for lvl, title in entries:
         by_level.setdefault(lvl, []).append(parse_chapter_number(title, regex))
+        titles_by_level.setdefault(lvl, []).append(title)
     best = None
     inconsistent = []
     for lvl in sorted(by_level):
@@ -181,6 +188,16 @@ def choose_chapter_level(entries, regex: str | None = None, min_numbers: int = 3
         return best[0], "ok"
     if inconsistent:
         return None, f"numbers not increasing at level(s) {inconsistent}"
+    few = None
+    for lvl in sorted(by_level):
+        numbered = [(n, t) for n, t in zip(by_level[lvl], titles_by_level[lvl]) if n is not None]
+        if not numbered or not strictly_increasing([n for n, _ in numbered]):
+            continue
+        if all(keyword_chapter_number(t) == n for n, t in numbered) and \
+                (few is None or len(numbered) > few[1]):
+            few = (lvl, len(numbered))
+    if few:
+        return few[0], "few chapters, titled `Chapter N`"
     return None, "no numbered titles"
 
 
@@ -616,6 +633,17 @@ def validate_book(book_dir: Path, manifest: dict | None = None, figures_root=Non
                          "detail": f"{len(numbers)} numbered chapters, no TOC count to compare"})
     if manifest.get("chapter_numbers_note"):
         warnings.append({"check": "chapter_numbers", "detail": manifest["chapter_numbers_note"]})
+    # a book that was supposed to be numbered but where no file carries a number: the split
+    # chose a chapter level, or its config named one / gave a chapter regex. A book with no
+    # numbered titles at all (guidelines, handbooks) has neither and keeps passing.
+    if not numbers:
+        why = []
+        if manifest.get("chapter_level") is not None:
+            why.append(f"chapter level {manifest['chapter_level']} was chosen")
+        if manifest.get("chapter_numbers_expected"):
+            why.append(str(manifest["chapter_numbers_expected"]))
+        if why:
+            err("chapter_numbers_missing", "no file carries a chapter number, but " + "; ".join(why))
 
     # 4. chapter title found at the start of its file
     tested = matched = 0

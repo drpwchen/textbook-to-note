@@ -887,6 +887,14 @@ def resplit_book(src: Path, out_root: Path, idx: PdfIndex, config: dict, pdf_map
     note = res.pop("_unit_chapter_numbers_note", None)
     if note:
         manifest["chapter_numbers_note"] = "; ".join(sorted(set(note)))
+    if cfg.get("chapter_numbers", True) is not False and \
+            not any(r["chapter_number"] is not None for r in records):
+        # the config says how this book numbers its chapters, yet no file got a number: the
+        # numbers were lost (e.g. a regex reading `8a`/`8b` as 8,8 → "not increasing" → all
+        # dropped). Recorded so the validator fails the book instead of passing it unnumbered.
+        asked = [k for k in ("chapter_regex", "chapter_level") if cfg.get(k)]
+        if asked:
+            manifest["chapter_numbers_expected"] = f"split config sets {', '.join(asked)}"
     if cfg.get("titles_are_labels"):
         manifest["titles_are_labels"] = True
     if cfg.get("missing_chapters_ok"):

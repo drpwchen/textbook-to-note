@@ -8,6 +8,30 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [0.8.2] — 2026-11-14 — Few-chapter PDFs split without config; lost chapter numbers fail
+
+### Changed
+- **A PDF whose outline has only one or two `Chapter N` entries** (an excerpt, a short
+  monograph) now gets its chapter level without a split config. Before, the level was detected
+  from at least three numbered titles only, so the `Chapter 1` entry mapped to no file and the
+  validator failed `chapter_unmapped`. Bare numbers (`5 Stroke`) still need three; books that
+  already had a level keep it.
+- **The validator fails `chapter_numbers_missing`** when no file of a book carries a chapter
+  number although the split chose a chapter level, or the book's split config set
+  `chapter_regex` / `chapter_level` (`--resplit` notes the latter in the manifest as
+  `chapter_numbers_expected`, only when it happens). Before, a regex that read `8a`/`8b` as 8, 8
+  dropped every number of the book and the validator passed it. Books with no numbered titles
+  (guidelines, handbooks) pass as before.
+- **The quickstart sample's `_split_config.json`** only renames `Glossary` → `Key Terms`; the
+  chapter level it used to set is found automatically. The quickstart's commands and output are
+  unchanged.
+
+Measured on the author's 285-book corpus, before vs after: no output file and no validator
+verdict changed (the level choice re-run on all 185 recorded outlines: no change); the validator
+over the production corpus stays 284/285.
+
+Spec: `openspec/changes/archive/chapter-numbers-few-or-lost/`. Tests: `converter/test_chapter_numbers.py`.
+
 ## [0.8.1] — 2026-11-13 — The corpus is the hand-off; one converter for public and private use
 
 Semantic search (Profile C) was documented as `INDEXER_SCRIPT` pointing at vault-search with an

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "textbook-to-note"
-version = "0.8.1"
+version = "0.8.2"
 description = "PDF/EPUB textbooks to greppable markdown with page markers, tables and figure references"
 readme = "README.md"
 license = { file = "LICENSE" }
