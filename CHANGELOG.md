@@ -22,10 +22,13 @@ repo lacked, so the two no longer need to be kept in sync by hand. On four real 
 the private copy and this release produce byte-identical markdown, and byte-identical corpora
 after `post_convert.py --resplit-only`.
 
+vault-search is now ask-your-library ([drpwchen/ask-your-library](https://github.com/drpwchen/ask-your-library));
+the docs use the new name. Env vars (`VAULT_SEARCH_DIR`, `VAULT_SEARCH_PY`) and printed messages are unchanged.
+
 ### Added
 - **`--resplit` writes `<out>/corpus.json`** = `{"format": "t2n-corpus/1", "kind": "textbook"}`,
   the marker of the corpus format specified in vault-search's
-  [`docs/corpus-format.md`](https://github.com/drpwchen/vault-search/blob/main/docs/corpus-format.md).
+  [`docs/corpus-format.md`](https://github.com/drpwchen/ask-your-library/blob/main/docs/corpus-format.md).
   Written only when absent; an existing `corpus.json` is never overwritten (a different one gets
   a one-line warning on stderr, exit code unchanged), and the source corpus's own `corpus.json`
   is not copied. Every other output file is byte-identical to 0.8.0.

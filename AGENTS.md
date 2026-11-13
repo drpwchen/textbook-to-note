@@ -61,7 +61,7 @@ Ask, or infer from context:
   converted markdown is the deliverable.
 - **Profile C only** — semantic search (LanceDB + a local embedding model via
   ollama) pays off once there are more than a handful of books. **This repo
-  ships no indexer** — the companion repo vault-search indexes the corpus
+  ships no indexer** — the companion repo ask-your-library (formerly *vault-search*) indexes the corpus
   folder this repo produces (Step 5); grep works with no extra install. Details: [`docs/setup-details.md`](docs/setup-details.md#step-11--profile-c-the-semantic-search-index).
 
 **Do not ask about GPUs here, and do not install any OCR engine yet.** OCR is
@@ -156,31 +156,31 @@ steps, engine setup, the `--force` re-run and when to add `--force-surya` — is
 [`docs/setup-details.md`](docs/setup-details.md#step-45--ocr-routing-diagnosis-engine-setup-re-run).
 **Read it before installing anything.**
 
-## Step 5: (Profile C only) Hand the corpus to vault-search
+## Step 5: (Profile C only) Hand the corpus to ask-your-library
 
 Skip this step entirely for profiles A and B — they need no index, no
-embedding model and no vault-search. This repo does no indexing: it produces
+embedding model and no ask-your-library. This repo does no indexing: it produces
 a corpus folder, and the companion repo
-[vault-search](https://github.com/drpwchen/vault-search) makes that folder
+[ask-your-library](https://github.com/drpwchen/ask-your-library) makes that folder
 searchable. The sequence:
 
 ```bash
 python converter/convert.py --batch-dir <BOOKS_DIR>                      # Step 4: books → OUTPUT_DIR
 python converter/convert.py --resplit <OUTPUT_DIR> --out <CORPUS_ROOT> --pdf-root <BOOKS_DIR>
-python <vault-search>/server/corpus.py add <CORPUS_ROOT>                 # run from vault-search's env
+python <vault-search>/server/corpus.py add <CORPUS_ROOT>                 # run from ask-your-library's env
 ```
 
 `--resplit` is not optional here: it writes the per-book `_manifest.json` and
 the root `corpus.json` (format `t2n-corpus/1`,
-[spec](https://github.com/drpwchen/vault-search/blob/main/docs/corpus-format.md))
+[spec](https://github.com/drpwchen/ask-your-library/blob/main/docs/corpus-format.md))
 that `corpus.py` checks. `corpus.py add` validates, indexes, audits and
 prints the env line to set. `python converter/post_convert.py --index
 --corpus <CORPUS_ROOT>` does the last two lines incrementally (only new or
 re-converted books are re-split) and runs `corpus.py add` when
-`VAULT_SEARCH_DIR` points at the vault-search checkout; with nothing set it
+`VAULT_SEARCH_DIR` points at the ask-your-library checkout; with nothing set it
 prints `[skip]` and the command, so a green run does *not* mean an index
 exists. Guidelines, prerequisites and verification:
-[`docs/setup-details.md`](docs/setup-details.md#step-5--hand-the-corpus-to-vault-search).
+[`docs/setup-details.md`](docs/setup-details.md#step-5--hand-the-corpus-to-ask-your-library).
 
 ## Step 6: (Profiles B/C) Install the two Claude Code skills
 

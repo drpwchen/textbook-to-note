@@ -134,12 +134,12 @@ dozens.
 folder: `convert.py --resplit` writes a corpus root (per-book
 `_manifest.json`, root `corpus.json` = `{"format": "t2n-corpus/1", "kind":
 "textbook"}`, guidelines under `_Guidelines/<Name>/`), and the companion repo
-[vault-search](https://github.com/drpwchen/vault-search) indexes it with
+[ask-your-library](https://github.com/drpwchen/ask-your-library) indexes it with
 `server/corpus.py add <corpus root>`. The format is specified once, in
-vault-search's
-[`docs/corpus-format.md`](https://github.com/drpwchen/vault-search/blob/main/docs/corpus-format.md).
+ask-your-library's
+[`docs/corpus-format.md`](https://github.com/drpwchen/ask-your-library/blob/main/docs/corpus-format.md).
 `post_convert.py --index` is only a shortcut for that command when
-`VAULT_SEARCH_DIR` points at a vault-search checkout; unset, it prints the
+`VAULT_SEARCH_DIR` points at an ask-your-library checkout; unset, it prints the
 command and `[skip]`. The older `INDEXER_SCRIPT` hook (`--incremental` /
 `--book`) is deprecated and kept only for existing setups.
 

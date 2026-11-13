@@ -11,7 +11,7 @@ step; the text below is unchanged.
   handful of books; for a small personal library, A or B first and add it later.
   **This repo ships no indexer and talks to no indexer CLI.** It produces a
   corpus folder (format `t2n-corpus/1`); the companion repo
-  [vault-search](https://github.com/drpwchen/vault-search) makes that folder
+  [ask-your-library](https://github.com/drpwchen/ask-your-library) makes that folder
   searchable with one command, `server/corpus.py add <corpus root>` — see
   Step 5. Grep works out of the box with no extra install. Profiles A and B
   need none of this.
@@ -26,7 +26,7 @@ installable lines:
 - EPUB conversion needs the `pandoc` CLI on `PATH` (not a pip package) —
   check with `pandoc --version` and prompt the user to install it if missing
 - `requests` — only for `scan_fix_negatives.py --verify-dark` (ollama vision)
-- `lancedb` — not needed by this repo at all on the current path; vault-search
+- `lancedb` — not needed by this repo at all on the current path; ask-your-library
   installs its own. Only the deprecated `INDEXER_SCRIPT` route's coverage
   audit imports it (see Step 5)
 - OCR (Surya) lives in its own venv entirely — see Step 4.5
@@ -52,8 +52,8 @@ don't fit:
   `post_convert.py` re-splits `OUTPUT_DIR` into a searchable corpus — and
   `T2N_PDF_ROOTS`, where it looks for a book's PDF when the `Source:` path is
   gone (default `BOOKS_DIR`)
-- Optional semantic search (Profile C): `VAULT_SEARCH_DIR` = the vault-search
-  checkout, and `VAULT_SEARCH_PY` = the Python of vault-search's environment if
+- Optional semantic search (Profile C): `VAULT_SEARCH_DIR` = the ask-your-library
+  checkout, and `VAULT_SEARCH_PY` = the Python of ask-your-library's environment if
   it differs from this one. Only used by the `post_convert.py --index`
   shortcut; running `corpus.py add` yourself needs neither. `INDEXER_SCRIPT`
   is deprecated (Step 5)
@@ -123,15 +123,15 @@ worthless (OCR-overlay scans, some digitized reprints). It forces OCR on
 every PDF under that directory, so point `--batch-dir` at a folder holding
 just the affected book.
 
-## Step 5 — Hand the corpus to vault-search
+## Step 5 — Hand the corpus to ask-your-library
 
 Profile C only. Profiles A and B stop before this step and need no index,
-no embedding model and no vault-search.
+no embedding model and no ask-your-library.
 
-**This repo does no indexing.** It produces a corpus folder; vault-search
+**This repo does no indexing.** It produces a corpus folder; ask-your-library
 indexes it. The hand-off is a folder contract, `t2n-corpus/1`, specified once
-in vault-search:
-[`docs/corpus-format.md`](https://github.com/drpwchen/vault-search/blob/main/docs/corpus-format.md).
+in ask-your-library:
+[`docs/corpus-format.md`](https://github.com/drpwchen/ask-your-library/blob/main/docs/corpus-format.md).
 
 ### The sequence
 
@@ -140,7 +140,7 @@ in vault-search:
 python converter/convert.py --batch-dir <BOOKS_DIR>
 # 2. re-split into the corpus root: per-book _manifest.json + root corpus.json
 python converter/convert.py --resplit <OUTPUT_DIR> --out <CORPUS_ROOT> --pdf-root <BOOKS_DIR>
-# 3. in vault-search's environment: validate, index, audit, print the env line
+# 3. in ask-your-library's environment: validate, index, audit, print the env line
 python <vault-search>/server/corpus.py add <CORPUS_ROOT>
 ```
 
@@ -160,7 +160,7 @@ python <vault-search>/server/corpus.py add <CORPUS_ROOT>
 ### Guidelines
 
 Clinical guidelines live in their own folder of the corpus,
-`<CORPUS_ROOT>/_Guidelines/<Name>/`, one folder per guideline; vault-search
+`<CORPUS_ROOT>/_Guidelines/<Name>/`, one folder per guideline; ask-your-library
 treats each as its own source and tags it `guideline`. `--batch-dir` writes
 every PDF to `OUTPUT_DIR/<stem>/`, so convert guidelines in a separate run
 with `OUTPUT_DIR` pointed at the `_Guidelines` folder of the same source
@@ -193,9 +193,9 @@ the folder names you want (`<Name>.pdf` → `_Guidelines/<Name>/`).
    separated by `;` on Windows, `:` elsewhere; default `BOOKS_DIR`).
 2. **Figure folders are linked, not copied** into the corpus (a junction on
    Windows, a symlink elsewhere), so there is one copy of the images.
-3. **Hand-off**: when `VAULT_SEARCH_DIR` points at a vault-search checkout
+3. **Hand-off**: when `VAULT_SEARCH_DIR` points at an ask-your-library checkout
    (the repo, containing `server/corpus.py`), it runs `corpus.py add
-   <CORPUS_DIR>`; set `VAULT_SEARCH_PY` to vault-search's Python if it lives
+   <CORPUS_DIR>`; set `VAULT_SEARCH_PY` to ask-your-library's Python if it lives
    in another environment. With `VAULT_SEARCH_DIR` unset, or pointing at
    something that is not a checkout, it prints `[skip]` and the exact command
    — so a green run does *not* mean an index exists.
@@ -208,10 +208,10 @@ verification and `INDEX.md` first, then all three.
 `INDEXER_SCRIPT` (an indexer with an `--incremental` / `--book <name>` CLI)
 is **deprecated**: when set it still runs as before, with a warning on stderr,
 and `--audit` still reads that indexer's `lance_db` / `textbook_chunks` table
-under `VAULT_SEARCH_DIR`. vault-search's current indexer does not have that
+under `VAULT_SEARCH_DIR`. ask-your-library's current indexer does not have that
 CLI; move to `corpus.py add`.
 
-Then verify a test query returns results (vault-search's README) before
+Then verify a test query returns results (ask-your-library's README) before
 telling the user it's ready. If the user does not want any of this, say
 plainly that grep over `<OUTPUT_DIR>/` is the whole search story — that is a
 supported configuration, not a degraded one.

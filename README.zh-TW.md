@@ -20,9 +20,9 @@
 |---|---|---|
 | **A · 只要轉檔** | 你的 PDF/EPUB 變成乾淨、可 grep 的 markdown，含頁碼標記、表格、圖表引用標記。用 `grep` 搜。 | `pip install -r requirements.txt`，然後跑 `converter/convert.py`。就這樣——不用 GPU、不用 ollama、不用索引。 |
 | **B · A ＋ 筆記工作流** | 讓 AI 從這個語料庫寫出結構化、逐條引用的筆記，圖片經 QC gate 抽出。 | A，再加 [`skills/`](skills/) 兩個 skill 與 [`workflows/note-writing.md`](workflows/note-writing.md)。 |
-| **C · B ＋ 語意搜尋** | 跨書用「意思」而不是關鍵字檢索——當你開始想不起來「那段在哪一本」時才值得做。 | B，再加姊妹專案 [vault-search](https://github.com/drpwchen/vault-search) 與本機 embedding 模型。之後三個指令：`convert.py` → `convert.py --resplit <output> --out <corpus>` → `corpus.py add <corpus>`（在 vault-search 裡跑）。 |
+| **C · B ＋ 語意搜尋** | 跨書用「意思」而不是關鍵字檢索——當你開始想不起來「那段在哪一本」時才值得做。 | B，再加姊妹專案 [ask-your-library](https://github.com/drpwchen/ask-your-library) 與本機 embedding 模型。之後三個指令：`convert.py` → `convert.py --resplit <output> --out <corpus>` → `corpus.py add <corpus>`（在 ask-your-library 裡跑）。 |
 
-**這個 repo 不含索引器，也不呼叫任何索引器**：它只產出一個語料資料夾；要讓這個資料夾可搜尋，是 vault-search 的選配步驟，一個指令 `server/corpus.py add <corpus>`。把轉好的輸出變成這種語料的是 `--resplit`（每本書一個 `_manifest.json`，根目錄一個 `corpus.json`，格式見 [`t2n-corpus/1`](https://github.com/drpwchen/vault-search/blob/main/docs/corpus-format.md)）。路線 A、B 完全不需要 RAG——不用索引、不用 embedding 模型、不用 vault-search。路線 A 是完整支援的終點，不是次級選項——幾十本書的規模，直接 grep 轉好的 markdown 真的就夠了。
+**這個 repo 不含索引器，也不呼叫任何索引器**：它只產出一個語料資料夾；要讓這個資料夾可搜尋，是 ask-your-library 的選配步驟，一個指令 `server/corpus.py add <corpus>`。把轉好的輸出變成這種語料的是 `--resplit`（每本書一個 `_manifest.json`，根目錄一個 `corpus.json`，格式見 [`t2n-corpus/1`](https://github.com/drpwchen/ask-your-library/blob/main/docs/corpus-format.md)）。路線 A、B 完全不需要 RAG——不用索引、不用 embedding 模型、不用 ask-your-library。路線 A 是完整支援的終點，不是次級選項——幾十本書的規模，直接 grep 轉好的 markdown 真的就夠了。
 
 如果你是叫 AI 幫你裝，直接告訴它你要哪一條線；[`AGENTS.md`](AGENTS.md) 第一件事就是問這個，然後跳過你這條線用不到的步驟。
 
@@ -70,7 +70,7 @@ PyMuPDF 文字抽取，每頁約 130 毫秒。三個不那麼直覺的設計：
 
 ### 第三關 · 檢索 — 在幾十本書裡找到對的那本
 
-跨書搜尋跑在與姊妹專案 [**vault-search**](https://github.com/drpwchen/vault-search) 相同的引擎上 — 本地 LanceDB + `bge-m3` embeddings，資料不出你的電腦。在單純相似度之上，我們加了**來源加權**：把你最信任的參考書（考試指定用書、學會官方教科書）分數調高，並依版本新舊調整，讓 AI 在任何主題上優先取用**你**信任的來源。
+跨書搜尋跑在與姊妹專案 [**ask-your-library**](https://github.com/drpwchen/ask-your-library) 相同的引擎上 — 本地 LanceDB + `bge-m3` embeddings，資料不出你的電腦。在單純相似度之上，我們加了**來源加權**：把你最信任的參考書（考試指定用書、學會官方教科書）分數調高，並依版本新舊調整，讓 AI 在任何主題上優先取用**你**信任的來源。
 
 ### 第四關 · 撰寫 — 一套筆記演算法，不只是一段 prompt
 
@@ -132,7 +132,7 @@ shared/       環境變數驅動的設定（config.py）
 
 ## 相關專案
 
-- [**vault-search**](https://github.com/drpwchen/vault-search) — 第三關所基於的本地語意搜尋引擎
+- [**ask-your-library**](https://github.com/drpwchen/ask-your-library)（舊名 vault-search）— 第三關所基於的本地語意搜尋引擎
 - [**openevidence-tools**](https://github.com/drpwchen/openevidence-tools) — 接在 Bonus 關的 OpenEvidence 提問 + verify 工具組
 - [**note-supplement**](https://github.com/drpwchen/note-supplement) — 反方向的工具：把新素材補進**已經寫好**的筆記，內建衝突偵測與分級寫入
 

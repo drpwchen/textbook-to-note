@@ -24,14 +24,14 @@ problem; you can move up later without redoing anything.
 |---|---|---|
 | **A · Converter only** | Your PDFs/EPUBs as clean, greppable markdown with page markers, tables, and figure-reference markers. Search with `grep`. | `pip install -r requirements.txt`, then `converter/convert.py`. Nothing else — no GPU, no ollama, no index. |
 | **B · A + the note workflow** | An AI writes structured, per-claim-cited notes from that corpus, with figures extracted through a QC gate. | A, plus the two skills in [`skills/`](skills/) and [`workflows/note-writing.md`](workflows/note-writing.md). |
-| **C · B + semantic search** | Cross-book retrieval by meaning rather than keyword — worth it once "which book was that in?" stops being obvious. | B, plus the companion repo [vault-search](https://github.com/drpwchen/vault-search) and a local embedding model. Then three commands: `convert.py` → `convert.py --resplit <output> --out <corpus>` → `corpus.py add <corpus>` (run in vault-search). |
+| **C · B + semantic search** | Cross-book retrieval by meaning rather than keyword — worth it once "which book was that in?" stops being obvious. | B, plus the companion repo [ask-your-library](https://github.com/drpwchen/ask-your-library) and a local embedding model. Then three commands: `convert.py` → `convert.py --resplit <output> --out <corpus>` → `corpus.py add <corpus>` (run in ask-your-library). |
 
 **This repo ships no indexer and calls none.** It produces a corpus folder; making that folder
-searchable is an opt-in step done by vault-search with one command, `server/corpus.py add
+searchable is an opt-in step done by ask-your-library with one command, `server/corpus.py add
 <corpus>`. `--resplit` is what turns converted output into such a corpus (a per-book
 `_manifest.json` and a root `corpus.json`, format
-[`t2n-corpus/1`](https://github.com/drpwchen/vault-search/blob/main/docs/corpus-format.md)).
-Profiles A and B need no RAG at all — no index, no embedding model, no vault-search. Profile A
+[`t2n-corpus/1`](https://github.com/drpwchen/ask-your-library/blob/main/docs/corpus-format.md)).
+Profiles A and B need no RAG at all — no index, no embedding model, no ask-your-library. Profile A
 is a fully supported end state, not a degraded one — for a few dozen books, grep over the
 converted markdown is genuinely enough.
 
@@ -83,7 +83,7 @@ A table of contents is too coarse (one topic spans many chapters); manual tags d
 
 ### 3 · Retrieve — find the right book among dozens
 
-Cross-book search runs on the same engine as its sibling project [**vault-search**](https://github.com/drpwchen/vault-search) — local LanceDB + `bge-m3` embeddings, nothing leaves your machine. On top of plain similarity we add **source weighting**: boost your most-trusted references (exam-designated texts, official society textbooks) and down-weight by edition age, so on any topic the AI reaches for the source *you* trust first.
+Cross-book search runs on the same engine as its sibling project [**ask-your-library**](https://github.com/drpwchen/ask-your-library) — local LanceDB + `bge-m3` embeddings, nothing leaves your machine. On top of plain similarity we add **source weighting**: boost your most-trusted references (exam-designated texts, official society textbooks) and down-weight by edition age, so on any topic the AI reaches for the source *you* trust first.
 
 ### 4 · Write — a note-writing algorithm, not a prompt
 
@@ -145,7 +145,7 @@ This tool ships **no textbook content**. It operates on PDFs you already own —
 
 ## Related
 
-- [**vault-search**](https://github.com/drpwchen/vault-search) — the local semantic-search engine stage 3 builds on.
+- [**ask-your-library**](https://github.com/drpwchen/ask-your-library) (formerly *vault-search*) — the local semantic-search engine stage 3 builds on.
 - [**openevidence-tools**](https://github.com/drpwchen/openevidence-tools) — the OpenEvidence ask + verify pair that plugs into the Bonus stage.
 - [**note-supplement**](https://github.com/drpwchen/note-supplement) — the other direction: merges new source material into notes you *already* wrote, with conflict detection and tier-gated writes.
 

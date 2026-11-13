@@ -142,8 +142,8 @@ grep -r "your search term" "$OUTPUT_DIR"      # default ./output
 ```
 
 ### 2. Semantic search (optional) — concept match
-If the user has handed the corpus to vault-search (Profile C: `convert.py
---resplit` → vault-search's `corpus.py add` — see `docs/setup-details.md`
+If the user has handed the corpus to ask-your-library (Profile C: `convert.py
+--resplit` → ask-your-library's `corpus.py add` — see `docs/setup-details.md`
 Step 5), a `textbook_search` tool becomes available for concept-level
 queries that don't depend on exact wording.
 
@@ -157,18 +157,18 @@ queries that don't depend on exact wording.
 
 After converting new books, run the post-pipeline:
 ```bash
-# Full pipeline: verify quality + refresh index.md + refresh figure registry + vault-search hand-off
+# Full pipeline: verify quality + refresh index.md + refresh figure registry + ask-your-library hand-off
 python {REPO}/converter/post_convert.py
 
 # Or individual steps:
 python {REPO}/converter/post_convert.py --verify   # check quality only
 python {REPO}/converter/post_convert.py --resplit-only  # re-split new / re-converted books into CORPUS_DIR
-python {REPO}/converter/post_convert.py --index    # that, then vault-search corpus.py add CORPUS_DIR
+python {REPO}/converter/post_convert.py --index    # that, then ask-your-library corpus.py add CORPUS_DIR
 ```
 
 The pipeline does **not** extract figures — it only verifies page markers,
 refreshes `index.md` + `figure_registry.json` from whatever figures already
-exist, and (optionally) hands a `--resplit` corpus root to vault-search's
+exist, and (optionally) hands a `--resplit` corpus root to ask-your-library's
 `corpus.py add`, which indexes and audits it. This repo never indexes
 anything itself; with `VAULT_SEARCH_DIR` unset the hand-off prints the
 command and `[skip]`. Figure extraction is never a batch post-step.
