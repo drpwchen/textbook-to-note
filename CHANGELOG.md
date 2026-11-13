@@ -8,33 +8,7 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
-## [0.8.1] — 2026-11-13 — `--resplit`: chapters bookmarked at another outline level
-
-### Fixed
-- **A `Chapter N` bookmark at a different outline level than the book's other chapters is now
-  split as a chapter.** Before, such a chapter was swallowed by its neighbour or left
-  unnumbered: one book had chapters 26–30 inside the file of chapter 25 (they sat one Section
-  deeper in the outline); two books had chapter 1 at the top level, so its sections became
-  unnumbered files marked as front matter. The entry and the entries below it move to the
-  chapter level; `sections` in the manifest keep the PDF's own levels; the run report counts
-  `promoted_chapters`. Only `Chapter N` / `Chap. N` titles, only when the book has a chapter
-  level, only numbers no chapter already carries. Off switch per book:
-  `"promote_chapters": false` in the split config. Books whose config numbers files by hand
-  (`chapter_number_overrides`) are left as they were.
-
-### Added
-- **Validator check `chapter_unmapped`**: a book fails when its outline names `Chapter N` and
-  no file carries N. The 0.8.0 validator checked only the numbers that were assigned, so the
-  books above passed.
-
-### Measured
-On the author's corpus (284 books), resplit before vs after: 3 books changed, all three
-corrections (checked by reading each new chapter's first lines); 281 byte-identical in files and
-sections. The new check found 5 books that 0.8.0 passed while wrong — the 3 above plus 2 fixed by
-config entries (an answer key repeating "Chapter 1…14", and chapters bookmarked as bare
-`Chapter-N` labels). Validator: 283 / 284, the same remaining book as 0.8.0.
-
-## [0.8.0] — 2026-11-10 — `--resplit`: re-split a corpus with a per-book manifest and validator
+## [0.8.0] — 2026-11-13 — `--resplit`: re-split a corpus with a per-book manifest and validator
 
 ### Added
 - **`convert.py --resplit <corpus> --out <dir> --pdf-root <dir>`** re-splits every book's
@@ -61,6 +35,19 @@ config entries (an answer key repeating "Chapter 1…14", and chapters bookmarke
 - **`T2N_SPLIT_DEEP_HEADINGS=1`** (default off; unset output is byte-identical) writes outline
   entries below the split level into the chapter files as `##` / `###` headings, just above the
   matching line on that page; entries with no matching line are skipped, nothing is moved.
+- **A `Chapter N` bookmark at a different outline level than the book's other chapters is
+  split as a chapter.** Without this, such a chapter was swallowed by its neighbour or left
+  unnumbered: one book had chapters 26–30 inside the file of chapter 25 (they sat one Section
+  deeper in the outline); two books had chapter 1 at the top level, so its sections became
+  unnumbered files marked as front matter. The entry and the entries below it move to the
+  chapter level; `sections` in the manifest keep the PDF's own levels; the run report counts
+  `promoted_chapters`. Only `Chapter N` / `Chap. N` titles, only when the book has a chapter
+  level, only numbers no chapter already carries. Off switch per book:
+  `"promote_chapters": false` in the split config. Books whose config numbers files by hand
+  (`chapter_number_overrides`) are left as they were.
+- **Validator check `chapter_unmapped`**: a book fails when its outline names `Chapter N` and
+  no file carries N. Without it the validator checked only the numbers that were assigned,
+  and five wrongly split books passed.
 
 ### Measured
 On the author's corpus (284 books; numbers in the archived change folders): 0-byte chapter files
@@ -71,6 +58,9 @@ per-chapter PDFs, numbered every chapter +7 without failing any check — fixed 
 entry.
 With `T2N_SPLIT_DEEP_HEADINGS=1` on the same corpus, 58,385 of 63,406 deeper outline entries
 (92.1%) found their line and became headings; validator results were unchanged.
+Cross-level chapters (measured 2026-11-13): resplit before vs after the fix changed 3 books, all
+corrections; 281 identical. The `chapter_unmapped` check found 5 books that had passed while
+wrong (3 fixed by the code, 2 by config entries); validator still 283 / 284.
 
 ## [0.7.7] — 2026-11-09 — Note-writing rules for conflicts, flagged tables and citation checks
 
