@@ -252,8 +252,83 @@ def test_require_source_pdf():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_require_source_pdf_no_full_text():
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        src, corpus, roots_dir, lib = tmp / "md", tmp / "corpus", tmp / "roots", tmp / "lib"
+        for d in (roots_dir, lib, corpus):
+            d.mkdir(parents=True)
+        (lib / "Cfg.pdf").write_bytes(b"%PDF")
+        (lib / "ch1.pdf").write_bytes(b"%PDF")
+        books = {
+            "Bare": {"ch01_Intro.md": "<!-- page 1 -->\nIntro text\n"},
+            "Cfg": {"ch01_Intro.md": "<!-- page 1 -->\nIntro text\n"},
+            "PerChapter": {"ch01_A.md": f"# A\n\nSource: `{lib / 'ch1.pdf'}`\n\n<!-- page 1 -->\nA\n"},
+            "GoneChapter": {"ch01_A.md": f"# A\n\nSource: `{tmp / 'gone' / 'x.pdf'}`\n\n<!-- page 1 -->\nA\n"},
+        }
+        for b, files in books.items():
+            (src / b).mkdir(parents=True)
+            for n, t in files.items():
+                (src / b / n).write_text(t, encoding="utf-8")
+        (corpus / "_split_config.json").write_text(json.dumps(
+            {"Cfg": {"pdf": str(lib / "Cfg.pdf"), "reason": "test"}}), encoding="utf-8")
+        runs = []
+
+        def fake_run(corpus_, out, roots, books=None, force=False, pdf_index=None, **kw):
+            runs.append(books[0])
+            (Path(out) / books[0]).mkdir(parents=True, exist_ok=True)
+            (Path(out) / books[0] / "_manifest.json").write_text("{}", encoding="utf-8")
+            return 0
+
+        plan = [(b, False) for b in books]
+        with patched(pc, OUTPUT_BASE=src, PDF_ROOTS=[roots_dir]), patched(rs, run=fake_run), \
+                env(T2N_REQUIRE_SOURCE_PDF="1"):
+            failed, log = quiet(pc.run_resplit, plan, corpus)
+        check("no full_text: Bare and GoneChapter fail; Cfg (config pdf) and PerChapter resplit",
+              sorted(failed) == ["Bare", "GoneChapter"] and sorted(runs) == ["Cfg", "PerChapter"],
+              (failed, runs))
+        fix = ('Fix: add "pdf": "<path to the book\'s PDF>" to the "Bare" entry of '
+               f"{corpus / '_split_config.json'}")
+        check("no full_text: the fix names the config file and the pdf entry",
+              fix in log and "--pdf-map" in log, log[-900:])
+        check("no full_text: refused book leaves the corpus alone", not (corpus / "Bare").exists())
+
+        runs.clear()
+        with patched(pc, OUTPUT_BASE=src, PDF_ROOTS=[roots_dir]), patched(rs, run=fake_run), \
+                env(T2N_REQUIRE_SOURCE_PDF=None):
+            failed, _ = quiet(pc.run_resplit, plan, tmp / "corpus2")
+        check("no full_text: unset → every book goes to resplit as before",
+              failed == [] and sorted(runs) == sorted(books), (failed, runs))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_roots_from_chapter_sources():
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        src, lib, other = tmp / "md", tmp / "lib" / "sub", tmp / "roots"
+        lib.mkdir(parents=True)
+        other.mkdir()
+        (lib / "Book.pdf").write_bytes(b"%PDF")
+        (src / "Recon").mkdir(parents=True)
+        (src / "Recon" / "ch00_Front_Matter.md").write_text(
+            f"# Recon\n\nSource: `{lib / 'Book.pdf'}`\n\n<!-- page 1 -->\nx\n", encoding="utf-8")
+        (src / "Recon" / "ch01_A.md").write_text("<!-- page 2 -->\nA\n", encoding="utf-8")
+        (src / "WithFull").mkdir()
+        (src / "WithFull" / "full_text.md").write_text("<!-- page 1 -->\nno source\n", encoding="utf-8")
+        (src / "WithFull" / "ch00_x.md").write_text(f"Source: `{lib / 'Book.pdf'}`\n", encoding="utf-8")
+        with patched(pc, OUTPUT_BASE=src, PDF_ROOTS=[other]):
+            check("roots: no full_text.md → the chapter files' Source folder",
+                  pc.pdf_roots_for("Recon") == [lib], pc.pdf_roots_for("Recon"))
+            check("roots: a full_text.md without Source still falls back to PDF_ROOTS (unchanged)",
+                  pc.pdf_roots_for("WithFull") == [other], pc.pdf_roots_for("WithFull"))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
-    for t in (test_config_dir, test_book_aliases, test_lazy_pdf_index, test_require_source_pdf):
+    for t in (test_config_dir, test_book_aliases, test_lazy_pdf_index, test_require_source_pdf,
+              test_require_source_pdf_no_full_text, test_roots_from_chapter_sources):
         try:
             t()
         except Exception as e:  # noqa: BLE001

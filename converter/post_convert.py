@@ -25,8 +25,10 @@ The figure-registry step is an optional integration too (FIGURE_REGISTRY_SCRIPT)
 
 T2N_REQUIRE_SOURCE_PDF=1 (opt-in, default off) makes the resplit refuse a book whose source PDF
 it cannot find without searching: every `full_text.md` must carry a `Source:` line naming an
-existing PDF, or a PDF of that file name must sit under T2N_PDF_ROOTS. Such a book is listed
-under [FAIL] with the fix, and its corpus copy is left as it was. Unset, a book with no PDF is
+existing PDF, or a PDF of that file name must sit under T2N_PDF_ROOTS; a book with no
+`full_text.md` needs `Source:` lines in its chapter files or a `pdf` entry in
+<corpus>/_split_config.json. Such a book is listed under [FAIL] with the fix, and its corpus
+copy is left as it was. Unset, a book with no PDF is
 resplit by carrying its existing split, as before.
 
 Exit code: 1 (listing what failed) when a resplit, a figure link or the hand-off fails.
@@ -187,9 +189,13 @@ def resplit_plan(corpus: Path = None) -> list[tuple[str, bool]]:
 
 def pdf_roots_for(book: str) -> list[Path]:
     """The folder(s) of the book's `Source:` PDF(s) that still exist; else the PDF_ROOTS that
-    exist. Searching only the Source folder keeps a resplit from walking a whole library."""
+    exist. Searching only the Source folder keeps a resplit from walking a whole library.
+    A book with no `full_text.md` (chapter files only) takes the `Source:` lines of its chapter
+    files instead — the PDF a reconstructed or per-chapter-PDF book is split from."""
     roots = []
-    for f in (OUTPUT_BASE / book).rglob("full_text.md"):
+    files = list((OUTPUT_BASE / book).rglob("full_text.md")) or \
+        sorted((OUTPUT_BASE / book).rglob("*.md"))
+    for f in files:
         with open(f, encoding="utf-8", errors="replace") as fh:
             m = SOURCE_RE.search(fh.read(2000))
         if m and Path(m.group(1)).exists():
@@ -203,13 +209,55 @@ def require_source_pdf() -> bool:
     return os.environ.get("T2N_REQUIRE_SOURCE_PDF", "0") == "1"
 
 
-def unresolved_sources(book: str, roots_index) -> list[str]:
+def configured_pdf(book: str, corpus: Path) -> Path | None:
+    """The book's `pdf` entry in <corpus>/_split_config.json, if it names an existing file
+    (absolute, or relative to one of T2N_PDF_ROOTS)."""
+    cfg_path = Path(corpus) / "_split_config.json" if corpus else None
+    if not cfg_path or not cfg_path.exists():
+        return None
+    try:
+        value = (json.loads(cfg_path.read_text(encoding="utf-8")).get(book) or {}).get("pdf")
+    except (ValueError, AttributeError):
+        return None
+    if not value:
+        return None
+    p = Path(value).expanduser()
+    if p.is_absolute():
+        return p if p.exists() else None
+    for r in PDF_ROOTS:
+        if (r / value).exists():
+            return r / value
+    return None
+
+
+def unresolved_sources(book: str, roots_index, corpus: Path = None) -> list[str]:
     """Problems that leave `book` without a source PDF unless something is searched: one line
     per `full_text.md` with no `Source:` line, or whose `Source:` PDF is gone and no PDF of that
     file name is under T2N_PDF_ROOTS (`roots_index`: a PdfIndex over those roots, walked only
-    if a Source PDF is actually missing)."""
+    if a Source PDF is actually missing). A book with no `full_text.md` at all needs its chapter
+    files' own `Source:` lines (one PDF per chapter) or a `pdf` entry in the split config."""
+    book_dir = OUTPUT_BASE / book
+    if configured_pdf(book, corpus):
+        return []
+    full_texts = sorted(book_dir.rglob("full_text.md"))
+    if not full_texts:
+        chapter_sources = []
+        for f in sorted(book_dir.rglob("*.md")):
+            with open(f, encoding="utf-8", errors="replace") as fh:
+                m = SOURCE_RE.search(fh.read(1500))
+            if m:
+                chapter_sources.append(Path(m.group(1)))
+        found = [s for s in chapter_sources
+                 if s.exists() or len(roots_index.by_name.get(s.name.lower(), [])) == 1]
+        if chapter_sources and len(found) == len(chapter_sources):
+            return []
+        cfg_file = Path(corpus) / "_split_config.json" if corpus else "<corpus>/_split_config.json"
+        return [f"{book} has no full_text.md and no source PDF it can find without searching, so "
+                f"it would be carried, not split from its PDF. Fix: add \"pdf\": \"<path to the "
+                f"book's PDF>\" to the \"{book}\" entry of {cfg_file} (or resplit it by hand with "
+                f"convert.py --resplit ... --pdf-map <json>)"]
     problems = []
-    for f in sorted((OUTPUT_BASE / book).rglob("full_text.md")):
+    for f in full_texts:
         rel = f.relative_to(OUTPUT_BASE).as_posix()
         with open(f, encoding="utf-8", errors="replace") as fh:
             m = SOURCE_RE.search(fh.read(2000))
@@ -247,7 +295,7 @@ def run_resplit(plan, corpus: Path = None) -> list[str]:
             key = os.pathsep.join(str(r) for r in PDF_ROOTS if r.exists())
             if key not in walked:
                 walked[key] = resplit.PdfIndex([r for r in PDF_ROOTS if r.exists()])
-            problems = unresolved_sources(book, walked[key])
+            problems = unresolved_sources(book, walked[key], corpus)
             if problems:
                 for p in problems:
                     print(f"  [FAIL] resplit {book}: {p}", flush=True)

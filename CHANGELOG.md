@@ -22,15 +22,26 @@ loose semantic versioning.
   `chapter_numbers_expected`, only when it happens). Before, a regex that read `8a`/`8b` as 8, 8
   dropped every number of the book and the validator passed it. Books with no numbered titles
   (guidelines, handbooks) pass as before.
+- **A book with no `full_text.md`** (chapter files only, split with `method: reconstruct`) is
+  resplit from the PDF its chapter files' `Source:` line names. `post_convert.py` used to look
+  for that line in `full_text.md` only, so such a book's PDF was not found without searching the
+  whole PDF library, and its old split was carried silently. On the author's corpus: 28 of 94
+  such books, every one now identical to the reviewed production corpus; 16 failed the
+  validator before.
+- **`T2N_REQUIRE_SOURCE_PDF=1` also covers books with no `full_text.md`**: one with no findable
+  PDF is a `[FAIL]` with the fix (a `pdf` entry in `<corpus>/_split_config.json`, or `--pdf-map`)
+  instead of being carried. Unset, nothing changes.
 - **The quickstart sample's `_split_config.json`** only renames `Glossary` → `Key Terms`; the
   chapter level it used to set is found automatically. The quickstart's commands and output are
   unchanged.
 
-Measured on the author's 285-book corpus, before vs after: no output file and no validator
+The two chapter-number changes, measured on the author's 285-book corpus before vs after: no output file and no validator
 verdict changed (the level choice re-run on all 185 recorded outlines: no change); the validator
 over the production corpus stays 284/285.
 
-Spec: `openspec/changes/archive/chapter-numbers-few-or-lost/`. Tests: `converter/test_chapter_numbers.py`.
+Spec: `openspec/changes/archive/chapter-numbers-few-or-lost/`,
+`openspec/changes/archive/no-full-text-sources/`. Tests: `converter/test_chapter_numbers.py`,
+`converter/test_maintainer_config.py`.
 
 ## [0.8.1] — 2026-11-13 — The corpus is the hand-off; one converter for public and private use
 

@@ -725,7 +725,8 @@ overrides) as the resplit target of `OUTPUT_DIR`:
   `CORPUS_DIR/<book>/_manifest.json` is missing (plain), or older than the book's newest `.md`
   (forced rebuild). Up-to-date books are not planned.
 - `run_resplit()`: each planned book is resplit with `--pdf-root` = the folder(s) of the PDFs
-  named by its `full_text.md` `Source:` lines that exist, else the `T2N_PDF_ROOTS` folders
+  named by its `full_text.md` `Source:` lines that exist (a book with no `full_text.md`: by its
+  chapter files' `Source:` lines), else the `T2N_PDF_ROOTS` folders
   (`os.pathsep`-separated; default `BOOKS_DIR`) that exist. Each root is walked at most once
   per run, and only when a lookup needs it (see "PDF roots are walked only on demand"). A book
   whose manifest is still missing afterwards is a failure.
@@ -748,6 +749,12 @@ chain and behave as in 0.8.1.
 #### Scenario: pdf roots
 - **GIVEN** `full_text.md` whose `Source:` names an existing PDF in `pdfs/sub/`
 - **THEN** the roots are `[pdfs/sub]`; with the PDF gone, they are the existing `T2N_PDF_ROOTS`
+
+#### Scenario: pdf roots of a book with no full_text.md
+- **GIVEN** a book holding only chapter files, its `ch00_Front_Matter.md` carrying
+  `Source:` → an existing `pdfs/sub/Book.pdf`
+- **THEN** the roots are `[pdfs/sub]` (before 0.8.2: the `T2N_PDF_ROOTS`, so a book split by
+  `method: reconstruct` found no PDF there and was carried)
 
 #### Scenario: figure links
 - **GIVEN** `figures`, `figures_Part_I`, `figures.old.bak`, `figures.x_undo` in `OUTPUT_DIR/Book`
@@ -845,6 +852,15 @@ the book SHALL NOT be resplit (its corpus copy is left as it was) and counts as 
 #### Negative constraints
 - MUST NOT list any folder other than the `T2N_PDF_ROOTS` folders to make this decision, and
   those only when a `Source:` PDF is actually missing.
+
+#### Scenario: a book with no full_text.md and no findable PDF (failure case)
+- **GIVEN** `T2N_REQUIRE_SOURCE_PDF=1` and a book of chapter files only, none with a `Source:`
+  line naming an existing PDF (or found by name under `T2N_PDF_ROOTS`), and no `pdf` entry for
+  it in `<corpus>/_split_config.json`
+- **THEN** stdout carries `[FAIL] resplit <book>: <book> has no full_text.md …` with
+  `Fix: add "pdf": "<path to the book's PDF>" to the "<book>" entry of <corpus>/_split_config.json`
+  and the `--pdf-map` alternative; the book is not resplit; exit 1
+- **AND** with a resolvable `pdf` entry, or every chapter `Source:` resolvable, it is resplit
 
 ### Requirement: Guidelines are listed one by one in verification and INDEX.md
 
