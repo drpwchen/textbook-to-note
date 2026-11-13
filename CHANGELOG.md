@@ -10,6 +10,9 @@ loose semantic versioning.
 
 ## [0.8.0] — 2026-11-13 — `--resplit`: re-split a corpus with a per-book manifest and validator
 
+First public release since 0.7.3; it also carries 0.7.4–0.7.7 (sections below), which were
+tagged locally but never published separately.
+
 ### Added
 - **`convert.py --resplit <corpus> --out <dir> --pdf-root <dir>`** re-splits every book's
   `full_text.md` by its PDF outline into a new directory, without re-converting. The source
