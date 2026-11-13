@@ -23,6 +23,12 @@ and exits 0. INDEXER_SCRIPT (an indexer with an --incremental/--book CLI) still 
 is deprecated; while it is set, the resplit chain is skipped and 0.8.0 behaviour applies.
 The figure-registry step is an optional integration too (FIGURE_REGISTRY_SCRIPT).
 
+T2N_REQUIRE_SOURCE_PDF=1 (opt-in, default off) makes the resplit refuse a book whose source PDF
+it cannot find without searching: every `full_text.md` must carry a `Source:` line naming an
+existing PDF, or a PDF of that file name must sit under T2N_PDF_ROOTS. Such a book is listed
+under [FAIL] with the fix, and its corpus copy is left as it was. Unset, a book with no PDF is
+resplit by carrying its existing split, as before.
+
 Exit code: 1 (listing what failed) when a resplit, a figure link or the hand-off fails.
 """
 
@@ -193,9 +199,39 @@ def pdf_roots_for(book: str) -> list[Path]:
     return roots or [r for r in PDF_ROOTS if r.exists()]
 
 
+def require_source_pdf() -> bool:
+    return os.environ.get("T2N_REQUIRE_SOURCE_PDF", "0") == "1"
+
+
+def unresolved_sources(book: str, roots_index) -> list[str]:
+    """Problems that leave `book` without a source PDF unless something is searched: one line
+    per `full_text.md` with no `Source:` line, or whose `Source:` PDF is gone and no PDF of that
+    file name is under T2N_PDF_ROOTS (`roots_index`: a PdfIndex over those roots, walked only
+    if a Source PDF is actually missing)."""
+    problems = []
+    for f in sorted((OUTPUT_BASE / book).rglob("full_text.md")):
+        rel = f.relative_to(OUTPUT_BASE).as_posix()
+        with open(f, encoding="utf-8", errors="replace") as fh:
+            m = SOURCE_RE.search(fh.read(2000))
+        if not m:
+            problems.append(f"{rel} has no `Source:` line. Fix: add the line `Source: `<path to the "
+                            f"book's PDF>`` at the top of {f}, or re-convert the book")
+            continue
+        src = Path(m.group(1))
+        if src.exists():
+            continue
+        if len(roots_index.by_name.get(src.name.lower(), [])) == 1:
+            continue
+        roots = os.pathsep.join(str(r) for r in PDF_ROOTS)
+        problems.append(f"{rel}: source PDF not found: {src}. Fix: put the PDF back at that path, "
+                        f"or copy {src.name} into one of T2N_PDF_ROOTS ({roots}), or edit the "
+                        f"`Source:` line of {f}")
+    return problems
+
+
 def run_resplit(plan, corpus: Path = None) -> list[str]:
     """Re-split each planned book into the corpus. Returns the books that failed (no
-    manifest afterwards)."""
+    manifest afterwards, or — with T2N_REQUIRE_SOURCE_PDF=1 — no findable source PDF)."""
     corpus = Path(corpus) if corpus else CORPUS_DIR
     print(f"\n=== Resplit into {corpus} ===")
     if not plan:
@@ -203,9 +239,20 @@ def run_resplit(plan, corpus: Path = None) -> list[str]:
         return []
     import resplit
     failed = []
-    walked = {}  # root -> PdfIndex: each PDF root is walked once per run, not once per book
+    walked = {}  # root -> PdfIndex: each PDF root is walked at most once per run, not once per book
+    strict = require_source_pdf()
     for book, force in plan:
         print(f"  [resplit] {book}{' (force: re-converted)' if force else ''} ...", flush=True)
+        if strict:
+            key = os.pathsep.join(str(r) for r in PDF_ROOTS if r.exists())
+            if key not in walked:
+                walked[key] = resplit.PdfIndex([r for r in PDF_ROOTS if r.exists()])
+            problems = unresolved_sources(book, walked[key])
+            if problems:
+                for p in problems:
+                    print(f"  [FAIL] resplit {book}: {p}", flush=True)
+                failed.append(book)
+                continue
         try:
             roots = [str(r) for r in pdf_roots_for(book)]
             for r in roots:

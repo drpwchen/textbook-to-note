@@ -7,16 +7,19 @@ Usage:
     python convert.py --batch-dir <dir>            # recursively convert every PDF/EPUB under dir
     python convert.py --batch <key>                 # convert a book defined in books.json (see below)
 
-Named-book batches (--batch) are driven by an optional BOOKS_DIR/books.json file, e.g.:
+Named-book batches (--batch) are driven by an optional books.json file in T2N_CONFIG_DIR
+(default BOOKS_DIR), e.g.:
     {
       "example_book": {
         "label": "My Textbook 6th Edition",
         "src": "./books/MyTextbook",
         "out": "./output/MyTextbook_6e",
         "glob": "*.pdf"
-      }
+      },
+      "both_volumes": ["vol1_key", "vol2_key"]
     }
-If books.json doesn't exist, --batch prints the expected format and exits.
+A list value is an alias: `--batch both_volumes` converts every book it names. `src`/`out`
+may start with `~`. If books.json doesn't exist, --batch prints the expected format and exits.
 """
 
 import fitz
@@ -35,7 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from shared.config import BOOKS_DIR, OUTPUT_DIR, SURYA_VENV_PY, SURYA_ADAPTER, SKIP_FOLDERS, SEP_CLASS
+from shared.config import BOOKS_DIR, CONFIG_DIR, OUTPUT_DIR, SURYA_VENV_PY, SURYA_ADAPTER, SKIP_FOLDERS, SEP_CLASS
 
 # Out-of-band table-review trigger (T2N_REVIEW_QUEUE=1). Pure-stdlib (os/re), always importable.
 from review_queue import review_queue_enabled, review_reasons, format_review_marker
@@ -76,13 +79,14 @@ def _gpu_lease_ctx(name: str, min_free_mb: int = 5000, timeout: float = 7200):
 
 # === Config ===
 OUTPUT_BASE = OUTPUT_DIR
-BOOKS_JSON = BOOKS_DIR / "books.json"
+BOOKS_JSON = CONFIG_DIR / "books.json"
 PROGRESS_FILE = OUTPUT_BASE / "batch_progress.json"
 
 # Book folders/output dirs that already have a high-quality conversion and should be
-# skipped by --batch-dir. Populate via BOOKS_DIR/already_converted.json (a JSON list
-# of output-folder names) if you maintain a curated library; empty by default.
-ALREADY_CONVERTED_FILE = BOOKS_DIR / "already_converted.json"
+# skipped by --batch-dir. Populate via T2N_CONFIG_DIR/already_converted.json (a JSON list
+# of output-folder names; T2N_CONFIG_DIR defaults to BOOKS_DIR) if you maintain a curated
+# library; empty by default.
+ALREADY_CONVERTED_FILE = CONFIG_DIR / "already_converted.json"
 
 
 def load_already_converted() -> set:
@@ -94,21 +98,32 @@ def load_already_converted() -> set:
     return set()
 
 
-def load_books() -> dict:
-    """Load named-book definitions from BOOKS_DIR/books.json. See module docstring for format."""
+def _read_books_json() -> dict:
     if not BOOKS_JSON.exists():
         return {}
-    raw = json.loads(BOOKS_JSON.read_text(encoding="utf-8"))
+    return json.loads(BOOKS_JSON.read_text(encoding="utf-8"))
+
+
+def load_books() -> dict:
+    """Load named-book definitions from T2N_CONFIG_DIR/books.json. See module docstring for
+    format. Alias entries (list values) are not books; load_book_aliases() returns them."""
     books = {}
-    for key, spec in raw.items():
+    for key, spec in _read_books_json().items():
+        if isinstance(spec, list):
+            continue
         books[key] = {
             "label": spec["label"],
-            "src": Path(spec["src"]),
-            "out": Path(spec["out"]),
+            "src": Path(spec["src"]).expanduser(),
+            "out": Path(spec["out"]).expanduser(),
             "glob": spec.get("glob", "*.pdf"),
             "prefix": spec.get("prefix", ""),
         }
     return books
+
+
+def load_book_aliases() -> dict:
+    """{alias: [book keys]} from the list-valued entries of books.json."""
+    return {k.lower(): list(v) for k, v in _read_books_json().items() if isinstance(v, list)}
 
 
 # === Text cleaning ===
@@ -1593,16 +1608,23 @@ def batch_convert(books: dict, book_keys: list[str]) -> dict:
     }
 
 
-def resolve_book_keys(books: dict, name: str) -> list[str]:
-    """Resolve book name to list of books dict keys."""
+def resolve_book_keys(books: dict, name: str, aliases: dict = None) -> list[str]:
+    """Resolve book name to list of books dict keys. An exact alias match wins over the
+    substring match, so `lien` can name both `lien_basic` and `lien_clinical`."""
     name = name.lower().strip()
+    aliases = aliases or {}
     if name == "all":
         return list(books.keys())
+    if name in aliases:
+        unknown = [k for k in aliases[name] if k not in books]
+        if unknown:
+            raise ValueError(f"Alias {name} names unknown book(s): {', '.join(unknown)}")
+        return list(aliases[name])
     # Fuzzy match
     for key in books:
         if name in key:
             return [key]
-    raise ValueError(f"Unknown book: {name}. Options: {', '.join(books.keys())}")
+    raise ValueError(f"Unknown book: {name}. Options: {', '.join(list(books.keys()) + list(aliases.keys()))}")
 
 
 # === Chapter splitting ===
@@ -2440,7 +2462,10 @@ def surya_ocr_pdf(pdf_path: str, out_md_path: str, dpi: int = 300, batch_size: i
                 f"{verdict} (parse_failures={parse_failures}, missing_lines={missing_lines}, "
                 f"unmatched_lines={unmatched_lines})")
 
-        md = []
+        # Provenance line, same form as the fitz path writes: --resplit and post_convert read
+        # it to find the book's PDF. Without it an OCR'd book had no record of its source and a
+        # resplit had to search whole PDF roots for it.
+        md = [f"Source: `{pdf_path}`\n"]
         for i in range(total):
             md.append(f"<!-- page {i+1} -->\n{pages_text[i]}\n")
         Path(out_md_path).parent.mkdir(parents=True, exist_ok=True)
@@ -2683,7 +2708,7 @@ def main():
                 }
             }, indent=2))
             sys.exit(1)
-        keys = resolve_book_keys(books, args.batch)
+        keys = resolve_book_keys(books, args.batch, load_book_aliases())
         book_names = ", ".join(books[k]["label"] for k in keys)
         print(f"Batch converting: {book_names}")
         start = time.time()

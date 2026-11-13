@@ -51,7 +51,12 @@ don't fit:
 - Profile C corpus: `CORPUS_DIR` (default `./corpus`) — where
   `post_convert.py` re-splits `OUTPUT_DIR` into a searchable corpus — and
   `T2N_PDF_ROOTS`, where it looks for a book's PDF when the `Source:` path is
-  gone (default `BOOKS_DIR`)
+  gone (default `BOOKS_DIR`). A root is listed only when a book actually needs
+  that lookup; `T2N_REQUIRE_SOURCE_PDF=1` turns such a book into a `[FAIL]` with
+  the fix instead of carrying its old split
+- Library settings: `T2N_CONFIG_DIR` (default `BOOKS_DIR`) holds `books.json`,
+  `already_converted.json`, `rename_skip.json` and `rename_fixes.json` — set it
+  when the PDFs live somewhere you would rather not write to (a synced drive)
 - Optional semantic search (Profile C): `VAULT_SEARCH_DIR` = the ask-your-library
   checkout, and `VAULT_SEARCH_PY` = the Python of ask-your-library's environment if
   it differs from this one. Only used by the `post_convert.py --index`

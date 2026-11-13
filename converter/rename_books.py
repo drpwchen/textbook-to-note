@@ -3,10 +3,11 @@ Rename PDF books to Author_Title_Ne_YYYY.pdf standard format.
 
 Reads edition/year off each PDF's copyright page (fitz text extraction), falling back to
 filename hints and PDF metadata. Skips files that already match the standard pattern,
-chapter-split PDFs, and anything listed in BOOKS_DIR/rename_skip.json.
+chapter-split PDFs, and anything listed in T2N_CONFIG_DIR/rename_skip.json
+(T2N_CONFIG_DIR defaults to BOOKS_DIR).
 
 Optional one-off corrections (e.g. a copyright page that misleads the year heuristic)
-can be supplied via BOOKS_DIR/rename_fixes.json: {"old_filename.pdf": "new_filename.pdf"}.
+can be supplied via T2N_CONFIG_DIR/rename_fixes.json: {"old_filename.pdf": "new_filename.pdf"}.
 """
 import json
 import os
@@ -21,14 +22,14 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from shared.config import BOOKS_DIR
+from shared.config import BOOKS_DIR, CONFIG_DIR
 
 BASE = str(BOOKS_DIR)
 
 # Folder names to skip entirely (e.g. legacy-edition archives), and specific
 # multi-file book folders whose per-chapter PDFs shouldn't be renamed. Populate via
-# BOOKS_DIR/rename_skip.json: {"skip_folders": [...], "skip_subfolder_books": [...], "skip_files": [...]}
-_SKIP_FILE = BOOKS_DIR / "rename_skip.json"
+# T2N_CONFIG_DIR/rename_skip.json: {"skip_folders": [...], "skip_subfolder_books": [...], "skip_files": [...]}
+_SKIP_FILE = CONFIG_DIR / "rename_skip.json"
 _skip_cfg = json.loads(_SKIP_FILE.read_text(encoding="utf-8")) if _SKIP_FILE.exists() else {}
 SKIP_FOLDERS = set(_skip_cfg.get("skip_folders", []))
 SKIP_SUBFOLDER_BOOKS = set(_skip_cfg.get("skip_subfolder_books", []))
@@ -257,15 +258,15 @@ def process_files(dry_run=False):
 
 
 def load_fixes() -> dict:
-    """Load {old_name: new_name} one-off corrections from BOOKS_DIR/rename_fixes.json, if present."""
-    fixes_file = BOOKS_DIR / "rename_fixes.json"
+    """Load {old_name: new_name} one-off corrections from T2N_CONFIG_DIR/rename_fixes.json, if present."""
+    fixes_file = CONFIG_DIR / "rename_fixes.json"
     if fixes_file.exists():
         return json.loads(fixes_file.read_text(encoding="utf-8"))
     return {}
 
 
 def fix_wrong_renames():
-    """Apply one-off filename corrections from BOOKS_DIR/rename_fixes.json (e.g. to fix a
+    """Apply one-off filename corrections from T2N_CONFIG_DIR/rename_fixes.json (e.g. to fix a
     year the copyright-page heuristic got wrong on a previous run). No-op if absent."""
     fixes = load_fixes()
     fixed = 0

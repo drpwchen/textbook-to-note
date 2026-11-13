@@ -44,6 +44,17 @@ the docs use the new name. Env vars (`VAULT_SEARCH_DIR`, `VAULT_SEARCH_PY`) and 
 - **`T2N_OCR_GUTTER=1`** (default off; unset = byte-identical) splits OCR'd two-column pages at
   a measured gutter instead of the page center, for boxed layouts whose gutter sits well off
   center. Opt-in because the evidence is two pages, not a corpus.
+- **`T2N_CONFIG_DIR`** (default `BOOKS_DIR`, so unset changes nothing): the folder holding
+  `books.json`, `already_converted.json`, `rename_skip.json` and `rename_fixes.json`, for a
+  library that keeps its settings outside the folder of source PDFs (a synced drive, say).
+- **`books.json` aliases and `~`**: a list value (`"lien": ["lien_basic", "lien_clinical"]`)
+  makes `--batch lien` convert every book it names; an exact alias wins over the substring
+  match. `src` / `out` may start with `~`.
+- **`T2N_REQUIRE_SOURCE_PDF=1`** (default off): `post_convert.py` refuses to resplit a book whose
+  source PDF it cannot find without searching — a `full_text.md` with no `Source:` line, or one
+  whose `Source:` PDF is gone and not under `T2N_PDF_ROOTS` by name. The book is listed under
+  `[FAIL]` with the missing path and the fix, its corpus copy is left as it was, exit 1. Unset,
+  such a book is resplit by carrying its existing split, as before.
 - **`pyproject.toml`**: `pip install -e .` installs the core dependencies and the
   `t2n-convert`, `t2n-post-convert` and `t2n-split-validate` commands. `requirements.txt` keeps
   working.
@@ -59,6 +70,16 @@ the docs use the new name. Env vars (`VAULT_SEARCH_DIR`, `VAULT_SEARCH_PY`) and 
   book. A worker that gives up after repeated restart failures is replaced for the next book,
   as a per-book worker would have been, and none is started under `T2N_TABLE_MERGE=1` (which
   does not use Docling). Output is unchanged.
+- **A Surya-OCR'd book's `full_text.md` now starts with its `Source:` line**, the same line the
+  text-layer path writes. Before, an OCR'd book had no record of its PDF, so `--resplit` and
+  `post_convert.py` could only find it by searching the PDF roots for a matching folder name.
+  Provenance only: which PDFs go to OCR, and the OCR text itself, are unchanged. Visible
+  effects: the line also heads the book's first chapter file (as on the text-layer path), and a
+  resplit now splits an OCR'd book from its PDF instead of carrying its old split.
+- **PDF roots are walked only when a lookup needs them.** A resplit used to list every PDF
+  under each root before splitting; now a book whose `Source:` PDFs all exist resolves them by
+  path and lists nothing. Output is unchanged; on a large synced library it saves a full
+  recursive listing per run.
 - **Batch log line** also reports Docling tables, review-queue flags, sideways pages and the
   reliability flag per book.
 - **`verify` and `INDEX.md` list each guideline** under `_Guidelines/` as its own entry, and
@@ -79,8 +100,10 @@ the docs use the new name. Env vars (`VAULT_SEARCH_DIR`, `VAULT_SEARCH_PY`) and 
   indexer's `lance_db` / `textbook_chunks`), with a warning on stderr pointing at
   `corpus.py add`. It wins over `VAULT_SEARCH_DIR` while set, so existing setups do not change.
 
-Specs: `openspec/changes/archive/corpus-handoff/`, `openspec/changes/archive/private-upport/`.
-Tests: `converter/test_corpus_handoff.py`, `converter/test_private_upport.py`.
+Specs: `openspec/changes/archive/corpus-handoff/`, `openspec/changes/archive/private-upport/`,
+`openspec/changes/archive/maintainer-config/`.
+Tests: `converter/test_corpus_handoff.py`, `converter/test_private_upport.py`,
+`converter/test_maintainer_config.py`, `converter/test_surya_ocr.py`.
 
 ## [0.8.0] — 2026-11-13 — `--resplit`: re-split a corpus with a per-book manifest and validator
 

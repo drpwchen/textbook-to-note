@@ -86,29 +86,60 @@ def fingerprint(paths) -> dict:
 # --- PDF lookup ------------------------------------------------------------------------------
 
 class PdfIndex:
+    """Filename / stem lookup over the PDFs under some roots. The roots are walked on the first
+    lookup that needs the tables, not at construction: a book whose `Source:` PDFs all exist
+    under a root resolves by path and never walks anything (the root may be a large synced
+    library where a recursive listing is expensive)."""
+
     def __init__(self, roots):
         self.roots = [Path(r) for r in roots]
-        self.by_name: dict[str, list[Path]] = {}
-        self.by_stem: dict[str, list[Path]] = {}
-        for r in self.roots:
-            for dp, dn, fn in os.walk(r):
-                for f in fn:
-                    if f.lower().endswith(".pdf"):
-                        p = Path(dp) / f
-                        self.by_name.setdefault(f.lower(), []).append(p)
-                        self.by_stem.setdefault(norm_stem(Path(f).stem), []).append(p)
+        self._parts = None  # set by combine(): build from these indexes instead of walking
+        self._by_name: dict[str, list[Path]] | None = None
+        self._by_stem: dict[str, list[Path]] | None = None
+
+    def _build(self):
+        if self._by_name is not None:
+            return
+        by_name, by_stem = {}, {}
+        if self._parts is not None:
+            for part in self._parts:
+                for k, v in part.by_name.items():
+                    by_name.setdefault(k, []).extend(v)
+                for k, v in part.by_stem.items():
+                    by_stem.setdefault(k, []).extend(v)
+        else:
+            for r in self.roots:
+                for dp, dn, fn in os.walk(r):
+                    for f in fn:
+                        if f.lower().endswith(".pdf"):
+                            p = Path(dp) / f
+                            by_name.setdefault(f.lower(), []).append(p)
+                            by_stem.setdefault(norm_stem(Path(f).stem), []).append(p)
+        self._by_name, self._by_stem = by_name, by_stem
+
+    @property
+    def walked(self) -> bool:
+        return self._by_name is not None
+
+    @property
+    def by_name(self) -> dict:
+        self._build()
+        return self._by_name
+
+    @property
+    def by_stem(self) -> dict:
+        self._build()
+        return self._by_stem
 
     @classmethod
     def combine(cls, parts) -> "PdfIndex":
-        """One index over several already-walked roots, in the given order — the same lookup
-        tables PdfIndex(roots) would build, without walking any root again."""
+        """One index over several roots' indexes, in the given order — the same lookup tables
+        PdfIndex(roots) would build, walking each part at most once (and only if needed)."""
+        parts = list(parts)
         idx = cls([])
+        idx._parts = parts
         for part in parts:
             idx.roots += part.roots
-            for k, v in part.by_name.items():
-                idx.by_name.setdefault(k, []).extend(v)
-            for k, v in part.by_stem.items():
-                idx.by_stem.setdefault(k, []).extend(v)
         return idx
 
     def resolve_configured(self, value: str) -> Path | None:

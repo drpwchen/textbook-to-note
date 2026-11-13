@@ -12,6 +12,9 @@ Env overrides:
                            (default: ./corpus); the folder ask-your-library indexes
     T2N_PDF_ROOTS       -> folders (os.pathsep-separated) post_convert.py's resplit searches
                            for a book's PDF when its `Source:` PDF is gone (default: BOOKS_DIR)
+    T2N_CONFIG_DIR      -> folder holding books.json, already_converted.json, rename_skip.json
+                           and rename_fixes.json (default: BOOKS_DIR) -- lets a library keep
+                           its settings outside the folder of source PDFs
     SURYA_VENV_PY       -> path to a Surya OCR venv's Python interpreter (python.exe on Windows, bin/python on macOS/Linux) (optional)
     SURYA_ADAPTER       -> path to an OCR adapter script (optional); this repo ships
                            converter/surya_adapter.py -- see docs/surya-adapter.md for the
@@ -48,6 +51,7 @@ BOOKS_DIR = Path(os.environ.get("BOOKS_DIR") or (REPO_ROOT / "books"))
 OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR") or (REPO_ROOT / "output"))
 CORPUS_DIR = Path(os.environ.get("CORPUS_DIR") or (REPO_ROOT / "corpus"))
 PDF_ROOTS = [Path(r) for r in os.environ.get("T2N_PDF_ROOTS", "").split(os.pathsep) if r] or [BOOKS_DIR]
+CONFIG_DIR = Path(os.environ.get("T2N_CONFIG_DIR") or BOOKS_DIR)
 
 # Optional OCR engine (only used as a fallback for scanned/garbled PDFs).
 SURYA_VENV_PY = Path(os.environ["SURYA_VENV_PY"]) if os.environ.get("SURYA_VENV_PY") else None
@@ -64,6 +68,6 @@ FIGURE_REGISTRY_SCRIPT = Path(os.environ["FIGURE_REGISTRY_SCRIPT"]) if os.enviro
 SKIP_FOLDERS = set(f for f in os.environ.get("CONVERTER_SKIP_FOLDERS", "").split(",") if f)
 
 if __name__ == "__main__":
-    for name in ("REPO_ROOT", "BOOKS_DIR", "OUTPUT_DIR", "CORPUS_DIR", "PDF_ROOTS", "SURYA_VENV_PY", "SURYA_ADAPTER",
+    for name in ("REPO_ROOT", "BOOKS_DIR", "OUTPUT_DIR", "CORPUS_DIR", "PDF_ROOTS", "CONFIG_DIR", "SURYA_VENV_PY", "SURYA_ADAPTER",
                  "VAULT_SEARCH_DIR", "VAULT_SEARCH_PY", "INDEXER_SCRIPT", "FIGURE_REGISTRY_SCRIPT", "SKIP_FOLDERS"):
         print(f"{name} = {globals()[name]}")

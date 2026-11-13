@@ -45,6 +45,9 @@ def raises(fn, needle=""):
 
 
 tmp = Path(tempfile.mkdtemp(prefix="t2n_surya_"))
+# The fake adapter uses no GPU: point the lease hook at an empty dir so a machine-wide GPU
+# broker (paused, or busy with a real job) cannot make this test queue forever.
+os.environ["T2N_GPU_LEASE_DIR"] = str(tmp / "no-gpu-lease")
 
 # ── the fake adapter ────────────────────────────────────────────────────────
 # Modes are chosen by T2N_FAKE_MODE so one script covers every failure shape. Page geometry
@@ -119,6 +122,8 @@ try:
     # ── happy path ──────────────────────────────────────────────────────────
     stats, out = run_ocr("good", "good")
     md = out.read_text(encoding="utf-8")
+    check("good: first line names the source PDF (provenance, as the fitz path writes it)",
+          md.splitlines()[0] == f"Source: `{PDF}`", md.splitlines()[:2])
     check("good: one page marker per PDF page",
           all(f"<!-- page {i+1} -->" in md for i in range(PAGES)) and stats["pages"] == PAGES)
     check("good: blocks are ordered by geometry, not by emission order",
