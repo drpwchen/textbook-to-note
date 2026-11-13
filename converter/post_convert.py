@@ -31,9 +31,11 @@ existing PDF, or a PDF of that file name must sit under T2N_PDF_ROOTS; a book wi
 copy is left as it was. Unset, a book with no PDF is
 resplit by carrying its existing split, as before.
 
-A book the validator fails (`valid: false` in <corpus>/_resplit_report.json) is listed under
-[FAIL] with a hint per failing check and the commands that re-split and re-validate it; while
-one exists the hand-off is not run (corpus.py add takes the whole corpus). Books resplit in the
+A book the validator fails (`valid: false` in <corpus>/_resplit_report.json) moves to
+<corpus>/_held/<book>/ with a _fix_request.md (what failed, which split-config keys, the exact
+commands, the done criterion) and is listed under [FAIL]; ask-your-library skips `_`-folders, so
+every other book is still handed off. It is re-split once its markdown or the split config
+changes, and comes back when it validates. Books resplit in the
 run also get a chapter-number check against their own pages (report only, [WARN] when more
 files contradict their number than confirm it).
 
@@ -45,6 +47,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -59,6 +62,7 @@ OUTPUT_BASE = OUTPUT_DIR
 PROGRESS_FILE = OUTPUT_BASE / "batch_progress.json"
 SKIP_DIRS = {"misc", "scripts", "figures_test", "__pycache__", ".drafts"}
 GUIDELINE_DIR = "_Guidelines"
+HELD_DIR = "_held"  # <corpus>/_held/<book>: failed validation, out of the index
 SOURCE_RE = re.compile(r"^Source: `([^`]+)`", re.M)
 FIGURE_BACKUP_MARKERS = (".bak", "undo")
 
@@ -189,7 +193,14 @@ def resplit_plan(corpus: Path = None) -> list[tuple[str, bool]]:
         if not newest:
             continue
         manifest = corpus / d.name / "_manifest.json"
-        if not manifest.exists():
+        held = corpus / HELD_DIR / d.name / "_manifest.json"
+        if not manifest.exists() and held.exists():
+            # held (failed validation): retry only once the markdown or the split config changed
+            cfg = corpus / "_split_config.json"
+            changed = max(newest, cfg.stat().st_mtime if cfg.exists() else 0.0)
+            if changed > held.stat().st_mtime:
+                plan.append((d.name, True))
+        elif not manifest.exists():
             plan.append((d.name, False))
         elif newest > manifest.stat().st_mtime:
             plan.append((d.name, True))
@@ -420,36 +431,141 @@ CHECK_HINTS = {
 DEFAULT_HINT = "not a config problem: re-split with --force; if it persists, report a bug"
 
 
-def held_books(corpus: Path) -> list[tuple[str, list[str]]]:
-    """Books <corpus>/_resplit_report.json records as resplit but invalid, that still exist."""
+def _report_entries(corpus: Path) -> dict:
     p = Path(corpus) / "_resplit_report.json"
     try:
-        report = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
     except (ValueError, UnicodeDecodeError):
-        return []
-    return [(b, list(r.get("errors") or [])) for b, r in sorted(report.items())
+        return {}
+
+
+def held_books(corpus: Path) -> list[tuple[str, list[str]]]:
+    """Books <corpus>/_resplit_report.json records as resplit but invalid, whose folder exists
+    in the corpus or under <corpus>/_held/."""
+    corpus = Path(corpus)
+    return [(b, list(r.get("errors") or [])) for b, r in sorted(_report_entries(corpus).items())
             if isinstance(r, dict) and r.get("status") == "ok" and r.get("valid") is False
-            and (Path(corpus) / b).is_dir()]
+            and ((corpus / b).is_dir() or (corpus / HELD_DIR / b).is_dir())]
+
+
+def remove_tree_keep_links(d: Path) -> None:
+    """Delete a folder; every link (junction / symlink) inside is removed as a link first, so
+    its target — e.g. a converted book's figures — is never touched."""
+    for dp, dn, fn in os.walk(d, topdown=True):
+        for name in list(dn):
+            p = Path(dp) / name
+            if _is_link(p):
+                try:
+                    os.unlink(p)
+                except OSError:
+                    os.rmdir(p)  # a Windows junction
+                dn.remove(name)
+    shutil.rmtree(d)
+
+
+def release_fixed(corpus: Path) -> list[str]:
+    """Remove _held/<book> copies whose book now validates and is back in the corpus."""
+    corpus = Path(corpus)
+    hd = corpus / HELD_DIR
+    if not hd.is_dir():
+        return []
+    report = _report_entries(corpus)
+    released = []
+    for d in sorted(hd.iterdir()):
+        r = report.get(d.name)
+        if d.is_dir() and isinstance(r, dict) and r.get("valid") is True and (corpus / d.name).is_dir():
+            remove_tree_keep_links(d)
+            released.append(d.name)
+            print(f"  [released] {d.name}: validates now; held copy removed")
+    if hd.exists() and not any(hd.iterdir()):
+        hd.rmdir()
+    return released
+
+
+def write_fix_request(corpus: Path, book: str, errors: list[str]) -> Path:
+    """_held/<book>/_fix_request.md: a brief an agent (or a person) can carry out on its own."""
+    import split_manifest as sm
+    held = corpus / HELD_DIR / book
+    try:
+        details = sm.validate_book(held)["errors"]
+    except Exception as e:  # noqa: BLE001 — the brief must still be written
+        details = [{"check": "?", "detail": f"validator raised {type(e).__name__}: {e}"}]
+    cfg = corpus / "_split_config.json"
+    roots = " ".join(f'--pdf-root "{r}"' for r in pdf_roots_for(book)) or "--pdf-root <BOOKS_DIR>"
+    lines = [
+        f"# Fix request — {book}",
+        "",
+        f"This book's split failed validation, so it was moved here ({held}) and is NOT in the",
+        "search index. Every other book was handed off as usual. Goal: make it validate.",
+        "",
+        "## What failed",
+        "",
+    ]
+    for e in details[:30]:
+        where = f" ({e['file']})" if e.get("file") else ""
+        lines.append(f"- `{e.get('check')}`{where}: {e.get('detail')}")
+    if len(details) > 30:
+        lines.append(f"- … {len(details) - 30} more")
+    lines += ["", "## Where to look", ""]
+    for c in errors or ["?"]:
+        lines.append(f"- `{c}`: {CHECK_HINTS.get(c, DEFAULT_HINT)}")
+    lines += [
+        "",
+        "## Steps",
+        "",
+        f"1. Read the split files here and the book's text in `{OUTPUT_BASE / book}`; decide what is",
+        "   really wrong. If the converted text itself is broken (two pages interleaved line by line,",
+        "   garbled characters, pages missing), the fix is re-converting the book, not split config.",
+        f"2. Otherwise add or fix the `\"{book}\"` entry of `{cfg}`.",
+        "3. Re-split and validate:",
+        "",
+        "```",
+        f'python "{HERE / "convert.py"}" --resplit "{OUTPUT_BASE}" --out "{corpus}" {roots} --book "{book}" --force',
+        f'python "{HERE / "split_manifest.py"}" --validate "{corpus}" --book "{book}"',
+        f'python "{HERE / "chapter_check.py"}" "{corpus}" --book "{book}"',
+        "```",
+        "",
+        "4. Run `post_convert.py --index`: the book goes back into the index and this folder is removed.",
+        "",
+        "## Done when",
+        "",
+        "- the validator prints `PASS` for the book, and",
+        "- `chapter_check.py` does not mark it `SUSPECT`.",
+        "",
+        "## Rules",
+        "",
+        "- Every config entry needs a `reason` saying what is in the book, not that a check failed.",
+        "- `missing_chapters_ok`, `title_check_skip`, `exclude_files` only for a cause that is really",
+        "  in the book (chapter absent from the source, title is an image, duplicate file) — never to",
+        "  make a wrong split pass.",
+        "- Never change a validator check or threshold to make this book pass.",
+        "- Back up the config before editing it.",
+        "",
+    ]
+    p = held / "_fix_request.md"
+    p.write_text("\n".join(lines), encoding="utf-8")
+    return p
 
 
 def report_held(corpus: Path) -> list[str]:
-    """Print each held book with a hint per failing check and the commands that fix and
-    re-check it. Returns their failure labels (empty when nothing is held)."""
+    """Move each held book to <corpus>/_held/<book>/ (out of the hand-off; every other book is
+    unaffected), write its fix request, list it. Returns the failure labels."""
+    corpus = Path(corpus).resolve()
+    release_fixed(corpus)
     held = held_books(corpus)
     if not held:
         return []
-    corpus = Path(corpus).resolve()
-    cfg = corpus / "_split_config.json"
-    print("\n=== Invalid splits (held out of the hand-off until they validate) ===")
+    print("\n=== Invalid splits (held under _held/, out of the index; everything else is handed off) ===")
     for book, errors in held:
+        src, dst = corpus / book, corpus / HELD_DIR / book
+        if src.is_dir():
+            if dst.exists():
+                remove_tree_keep_links(dst)
+            dst.parent.mkdir(exist_ok=True)
+            os.replace(src, dst)
+        req = write_fix_request(corpus, book, errors)
         print(f"  [FAIL] {book}: {', '.join(errors) or 'invalid'}")
-        for e in errors or ["?"]:
-            print(f"    {e}: {CHECK_HINTS.get(e, DEFAULT_HINT)}")
-        roots = " ".join(f'--pdf-root "{r}"' for r in pdf_roots_for(book)) or "--pdf-root <BOOKS_DIR>"
-        print(f"    fix the \"{book}\" entry of {cfg} (with a reason), then:")
-        print(f'      python "{HERE / "convert.py"}" --resplit "{OUTPUT_BASE}" --out "{corpus}" {roots} '
-              f'--book "{book}" --force')
-        print(f'      python "{HERE / "split_manifest.py"}" --validate "{corpus}" --book "{book}"')
+        print(f"    fix request: {req}")
     return [f"invalid split: {b} [{','.join(e)}]" for b, e in held]
 
 
@@ -659,16 +775,8 @@ def main():
 
     def handoff():
         nonlocal handoff_rc
-        if not INDEXER_SCRIPT:
-            held = [f for f in failures if f.startswith("invalid split: ")]
-            if not held and args.backfill:
-                held = report_held(root)
-                failures.extend(held)
-            if held:
-                print(f"\n=== Semantic search hand-off ===\n  [held] not run: {len(held)} book(s) in "
-                      f"{root} fail validation (listed above); corpus.py add takes the whole corpus, "
-                      f"so nothing is indexed until they validate.")
-                return
+        if not INDEXER_SCRIPT and args.backfill:
+            failures.extend(report_held(root))  # held books move under _held/; the rest is handed off
         handoff_rc = run_indexer(root)
         if handoff_rc:
             failures.append(f"ask-your-library hand-off exited {handoff_rc}")

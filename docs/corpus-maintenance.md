@@ -106,14 +106,22 @@ ligature repair is applied on this path: a scanned page has no text layer to vou
 ## When a resplit book fails validation
 
 `post_convert.py` (default run, `--index`, `--resplit-only`, `--backfill`) reads
-`<corpus>/_resplit_report.json`. A book recorded there as `valid: false` is listed under
-`[FAIL]` with its failing checks, and **the hand-off to ask-your-library does not run** until
-it validates: `corpus.py add` takes the whole corpus, so this is the only way to keep a wrongly
-split book out of the index. The run exits 1. Nothing is re-validated or re-split to decide.
+`<corpus>/_resplit_report.json`. A book recorded there as `valid: false` is **held alone**: its
+folder moves to `<corpus>/_held/<book>/`, which ask-your-library skips, so it is out of the
+index while **every other book is handed off as usual**. Next to it the run writes
+`_held/<book>/_fix_request.md` — a self-contained brief for an AI agent or a person: what
+failed (with the validator's details), which config keys address each check, the exact
+commands, the done criterion and the rules. The run lists the book under `[FAIL]` and exits 1.
+
+A held book is re-split automatically once its markdown or `_split_config.json` changes, and
+comes back into the corpus (the held copy is removed, links inside it unlinked, never followed)
+as soon as it validates.
 
 The loop for one book:
 
-1. Read the check names after `[FAIL]` and the hint printed under each. The usual fix is an entry
+1. Read `_held/<book>/_fix_request.md`. If the converted text itself is broken (two book
+   pages interleaved line by line, garbled characters), re-convert the book — no split config
+   fixes that. Otherwise the usual fix is an entry
    for the book in `<corpus>/_split_config.json` (every entry needs a `reason` that says what is
    in the book, not that the check failed):
 
@@ -128,14 +136,14 @@ The loop for one book:
    | `page_overlap` / `page_gap` | files share pages / pages with text fall between files | `page_offset`, `anchor_titles`, `toc`, `body_start_page`; `method: reconstruct` + `exclude_files` for a duplicated old file |
    | anything else | manifest and files disagree | re-split with `--force`; if it persists, it is a bug — report it |
 
-2. Re-split that book and validate it (both commands are printed with the book's real paths):
+2. Re-split that book and validate it (the fix request has these with the book's real paths):
 
    ```
    python converter/convert.py --resplit <OUTPUT_DIR> --out <CORPUS_DIR> --pdf-root <dir> --book "<book>" --force
    python converter/split_manifest.py --validate <CORPUS_DIR> --book "<book>"
    ```
 
-3. Run `post_convert.py --index` again. With no book held, the hand-off runs.
+3. Run `post_convert.py --index` again: the book is back in the index and its `_held/` copy is gone.
 
 **Chapter numbers the validator cannot see.** A split can be internally consistent and still
 number every chapter wrong (all off by a constant). Each book resplit in a run also gets

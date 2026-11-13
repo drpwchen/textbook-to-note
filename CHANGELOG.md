@@ -11,16 +11,18 @@ loose semantic versioning.
 ## [0.8.3] — 2026-11-14 — Invalid splits held out of the index; `--force` keeps figure links; gap chapters
 
 ### Added
-- **A book that fails split validation is held out of the search hand-off.** `post_convert.py`
+- **A book that fails split validation is held alone, with a fix request.** `post_convert.py`
   used to count a resplit as done when it exited 0 and wrote a manifest; the validator's
   verdict in `_resplit_report.json` was never read, so a wrongly split book was indexed like
-  any other. Now every book recorded as `valid: false` is listed under `[FAIL]` with its failing
-  checks, a hint per check naming the `_split_config.json` keys that address it, and the exact
-  re-split and validate commands for that book; while one exists, ask-your-library's
-  `corpus.py add` is not run (it takes the whole corpus) and the exit code is 1. Measured on
-  the author's corpus: 1 book held (a two-page-spread scan whose "chapters" 3 and 50 were a
-  street address and a garbled line), 0 after its config entry. Loop and check→key table:
-  `docs/corpus-maintenance.md`. Spec: `openspec/changes/archive/split-acceptance-gate/`.
+  any other. Now a book recorded as `valid: false` moves to `<corpus>/_held/<book>/`
+  (ask-your-library skips `_`-folders, so it is out of search while every other book is handed
+  off as usual) with a `_fix_request.md`: what failed, which `_split_config.json` keys address
+  each check, the exact re-split / validate commands, the done criterion and the rules — a brief
+  an AI agent can carry out. It is listed under `[FAIL]` (exit 1), re-split automatically once its
+  markdown or the split config changes, and returns as soon as it validates. Measured on the
+  author's corpus: 1 book failed (a two-page-spread scan OCR'd with both pages interleaved line
+  by line). Loop and check→key table: `docs/corpus-maintenance.md`. Specs:
+  `openspec/changes/archive/split-acceptance-gate/`, `…/held-book-fix-request/`.
 - **`converter/chapter_check.py`: chapter numbers vs each file's own pages.** A split can pass
   every check and still number all chapters wrong (off by a constant). Every book resplit in a
   `post_convert.py` run gets counts of files whose opening confirms / contradicts their

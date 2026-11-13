@@ -787,7 +787,8 @@ overrides) as the resplit target of `OUTPUT_DIR`:
 - `resplit_plan()`: every top-level folder of `OUTPUT_DIR` holding a `.md` file (skipping
   `misc`, `scripts`, `figures_test`, `__pycache__`, `.drafts` and `.`-folders) is planned when
   `CORPUS_DIR/<book>/_manifest.json` is missing (plain), or older than the book's newest `.md`
-  (forced rebuild). Up-to-date books are not planned.
+  (forced rebuild). Up-to-date books are not planned; a held book (`_held/<book>/`) only when
+  its markdown or the split config is newer than its held manifest.
 - `run_resplit()`: each planned book is resplit with `--pdf-root` = the folder(s) of the PDFs
   named by its `full_text.md` `Source:` lines that exist (a book with no `full_text.md`: by its
   chapter files' `Source:` lines), else the `T2N_PDF_ROOTS` folders
@@ -801,8 +802,8 @@ overrides) as the resplit target of `OUTPUT_DIR`:
 Flags: `--resplit-only` runs plan + resplit + links. `--index` runs them and then the 0.8.1
 hand-off on `CORPUS_DIR`; `--backfill` is the hand-off alone. The default (no flag) runs
 verify, `INDEX.md`, the figure registry, then what `--index` runs. Any failure SHALL be listed
-after `[FAIL]` (held books included, see "An invalid split holds back the hand-off"; the
-hand-off runs only when no book is held) and the process SHALL exit 1 (or the hand-off's own
+after `[FAIL]` (held books included, see "An invalid split is held alone, with a fix
+request"; they never stop the hand-off) and the process SHALL exit 1 (or the hand-off's own
 non-zero code, if that is the only failure). With `INDEXER_SCRIPT` set, `--index` and the default skip the resplit
 chain and behave as in 0.8.1.
 
@@ -838,37 +839,55 @@ chain and behave as in 0.8.1.
 - MUST NOT copy figure files into `CORPUS_DIR`.
 - MUST NOT import any ask-your-library module.
 
-### Requirement: An invalid split holds back the hand-off
+### Requirement: An invalid split is held alone, with a fix request
 
 `post_convert.py` SHALL read `<corpus>/_resplit_report.json` after the resplit chain (default
 run, `--index`, `--resplit-only`) and, for `--backfill`, before the hand-off (not on the
 deprecated `INDEXER_SCRIPT` route). A book is *held* when its entry has `status == "ok"` and
-`valid == false` and `<corpus>/<book>/` exists. For each held book it SHALL print the book, its
-`errors`, one hint line per failing check naming the split-config keys that address it, and the
-commands that re-split and re-validate that book (`convert.py --resplit … --book <book> --force`,
-`split_manifest.py --validate … --book <book>`). While any book is held the hand-off SHALL NOT
-run, the `[FAIL]` list SHALL contain `invalid split: <book> [<checks>]` per held book, and the
-exit code SHALL be 1.
+`valid == false` and `<corpus>/<book>/` or `<corpus>/_held/<book>/` exists. For each held book:
+
+- `<corpus>/<book>/`, if present, SHALL move to `<corpus>/_held/<book>/` (replacing an older
+  held copy; links inside a removed copy are unlinked, never followed).
+- `<corpus>/_held/<book>/_fix_request.md` SHALL be (re)written: the book, each failing check
+  with the validator's detail lines, the config keys per check, the config file path, the
+  re-split and validate commands, the chapter-check command, the done criterion, and the rules.
+- stdout SHALL list it after `[FAIL]` as `invalid split: <book> [<checks>]`, with the path of
+  its fix request; the exit code SHALL be 1.
+
+The hand-off SHALL run whether or not books are held (they are under `_held/`, which
+ask-your-library skips). A `_held/<book>/` whose report entry is valid and whose
+`<corpus>/<book>/` exists SHALL be removed (the book was fixed).
+
+`resplit_plan()` SHALL plan a held book (no `<corpus>/<book>/_manifest.json`, a
+`_held/<book>/_manifest.json`) as forced when the book's newest `.md` or
+`<corpus>/_split_config.json` is newer than the held manifest, and SHALL NOT plan it otherwise.
 
 #### Scenario: held book
 - **GIVEN** a corpus whose report marks `BookA` `valid: false, errors: ["chapter_gap"]` and
-  `BookB` valid, and an ask-your-library checkout configured
+  `BookB` valid, both folders present, an ask-your-library checkout configured
 - **WHEN** `post_convert.py --index` runs
-- **THEN** stdout contains `invalid split: BookA [chapter_gap]`, a hint containing
-  `missing_chapters_ok`, and `--book "BookA" --force`; `corpus.py` is not run; exit code 1
+- **THEN** `BookA` is at `_held/BookA/` (not at `BookA/`), `_held/BookA/_fix_request.md` contains
+  `chapter_gap`, `missing_chapters_ok` and `--book "BookA" --force`; stdout contains
+  `invalid split: BookA [chapter_gap]`; `corpus.py add <root>` runs once; exit code 1
 
 #### Scenario: fixed book
-- **GIVEN** the same corpus after BookA's entry becomes `valid: true`
-- **THEN** `corpus.py add <root>` runs once and the exit code is its own
+- **GIVEN** `_held/BookA/` and a fresh `BookA/` whose report entry is valid
+- **THEN** `_held/BookA/` is removed, a file the held copy linked to still exists, nothing is
+  held, and the exit code is the hand-off's own
+
+#### Scenario: plan for a held book
+- **GIVEN** `_held/BookA/_manifest.json` newer than BookA's markdown and the split config
+- **THEN** BookA is not planned; after the config is touched it is planned as `("BookA", True)`
 
 #### Scenario: stale entries
-- **GIVEN** a `valid: false` entry for a book folder that no longer exists, an entry with
+- **GIVEN** a `valid: false` entry for a book with neither folder, an entry with
   `status: "error"`, and an entry without a `valid` key
-- **THEN** nothing is held
+- **THEN** nothing is held or moved
 
 **Negative constraints**
-- MUST NOT re-run the validator or resplit anything to decide (the report is the record).
+- MUST NOT re-run resplit to decide whether a book is held (the report is the record).
 - MUST NOT hold a book on a warning.
+- MUST NOT follow a link when removing a held copy.
 - MUST NOT change the `INDEXER_SCRIPT` route.
 
 ### Requirement: Books resplit in a run get a chapter-number check

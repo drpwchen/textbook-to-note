@@ -304,37 +304,90 @@ def _report(root, entries):
     (root / rs.REPORT_NAME).write_text(json.dumps(entries), encoding="utf-8")
 
 
+def _link(link: Path, target: Path):
+    if os.name == "nt":
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True)
+    else:
+        os.symlink(target, link, target_is_directory=True)
+
+
 def test_held_books():
-    """split-acceptance-gate: a book the validator failed holds back the hand-off."""
+    """held-book-fix-request: a book the validator failed is moved under _held/ with a fix
+    request; the rest of the corpus is unaffected; a fixed book is released without following
+    the links inside its held copy."""
     tmp = Path(tempfile.mkdtemp())
     try:
         root = tmp / "root"
         for b in ("BookA", "BookB", "Errored", "NoValid"):
             (root / b).mkdir(parents=True)
-        vs = tmp / "vs"
-        (vs / "server").mkdir(parents=True)
-        (vs / "server" / "corpus.py").write_text("", encoding="utf-8")
+        (root / "BookA" / "ch01.md").write_text("<!-- page 1 -->\nx\n", encoding="utf-8")
+        figs = tmp / "output" / "BookA" / "figures"
+        figs.mkdir(parents=True)
+        (figs / "fig1.png").write_bytes(b"png")
+        _link(root / "BookA" / "figures", figs)
         stale = {"Gone": {"status": "ok", "valid": False, "errors": ["chapter_gap"]},
                  "Errored": {"status": "error", "reason": "x"},
                  "NoValid": {"status": "ok"},
                  "BookB": {"status": "ok", "valid": True, "errors": []}}
         _report(root, stale)
-        check("stale: nothing held", pc.held_books(root) == [], pc.held_books(root))
-        _report(root, dict(stale, BookA={"status": "ok", "valid": False, "errors": ["chapter_gap"]}))
-        check("held: BookA", pc.held_books(root) == [("BookA", ["chapter_gap"])], pc.held_books(root))
         failures, out, _ = captured(pc.report_held, root)
+        check("stale: nothing held or moved", failures == [] and not (root / pc.HELD_DIR).exists(), out)
+
+        _report(root, dict(stale, BookA={"status": "ok", "valid": False, "errors": ["chapter_gap"]}))
+        failures, out, _ = captured(pc.report_held, root)
+        held = root / pc.HELD_DIR / "BookA"
+        req = held / "_fix_request.md"
         check("held: label", failures == ["invalid split: BookA [chapter_gap]"], failures)
-        check("held: hint + fix commands",
-              "missing_chapters_ok" in out and '--book "BookA" --force' in out
-              and "split_manifest.py" in out and '--validate' in out, out)
-        check("held: unknown check gets the default hint",
+        check("held: moved under _held/, others untouched",
+              held.is_dir() and not (root / "BookA").exists() and (root / "BookB").is_dir(), out)
+        text = req.read_text(encoding="utf-8") if req.exists() else ""
+        check("held: fix request names check, key, commands, done criterion",
+              "chapter_gap" in text and "missing_chapters_ok" in text and '--book "BookA" --force' in text
+              and "--validate" in text and "chapter_check.py" in text and "Done when" in text, text[:500])
+        check("held: link moved as a link", (held / "figures" / "fig1.png").exists(), out)
+        check("held: listed again on the next run, still one copy",
+              captured(pc.report_held, root)[0] == failures and held.is_dir())
+
+        # fixed: a fresh valid BookA appears; the held copy goes, the figure target stays
+        (root / "BookA").mkdir()
+        _report(root, dict(stale, BookA={"status": "ok", "valid": True, "errors": []}))
+        failures, out, _ = captured(pc.report_held, root)
+        check("fixed: released, nothing held", failures == [] and not held.exists()
+              and not (root / pc.HELD_DIR).exists(), out)
+        check("fixed: link target untouched", (figs / "fig1.png").exists())
+        check("unknown check gets the default hint",
               pc.CHECK_HINTS.get("schema") is None and "report a bug" in pc.DEFAULT_HINT)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_held_plan():
+    tmp = Path(tempfile.mkdtemp())
+    saved = pc.OUTPUT_BASE
+    try:
+        out, root = tmp / "output", tmp / "root"
+        (out / "BookA").mkdir(parents=True)
+        md = out / "BookA" / "full_text.md"
+        md.write_text("x", encoding="utf-8")
+        (root / pc.HELD_DIR / "BookA").mkdir(parents=True)
+        cfg = root / "_split_config.json"
+        cfg.write_text("{}", encoding="utf-8")
+        man = root / pc.HELD_DIR / "BookA" / "_manifest.json"
+        man.write_text("{}", encoding="utf-8")
+        os.utime(md, (1000, 1000))
+        os.utime(cfg, (1000, 1000))
+        os.utime(man, (2000, 2000))
+        pc.OUTPUT_BASE = out
+        check("plan: held and unchanged -> not planned", pc.resplit_plan(root) == [], pc.resplit_plan(root))
+        os.utime(cfg, (3000, 3000))
+        check("plan: config changed -> forced", pc.resplit_plan(root) == [("BookA", True)], pc.resplit_plan(root))
+    finally:
+        pc.OUTPUT_BASE = saved
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_held_cli():
-    """The real CLI: --index and --backfill skip corpus.py while a book is held; run it once fixed."""
+    """The real CLI: the hand-off runs for the rest of the corpus while a book is held; exit 1."""
     tmp = Path(tempfile.mkdtemp())
     try:
         vs, root, log = tmp / "vs", tmp / "root", tmp / "argv.json"
@@ -349,19 +402,17 @@ def test_held_cli():
                    PYTHONIOENCODING="utf-8")
         _report(root, {"BookA": {"status": "ok", "valid": False, "errors": ["chapter_gap"]}})
         for flag in ("--index", "--backfill", "--resplit-only"):
+            if log.exists():
+                log.unlink()
             p = subprocess.run([sys.executable, "-B", str(HERE / "post_convert.py"), flag, "--corpus", str(root)],
                                env=env, capture_output=True, text=True, encoding="utf-8")
-            check(f"held cli {flag}: corpus.py not run, exit 1, listed once",
-                  not log.exists() and p.returncode == 1
+            lines = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+            want = [] if flag == "--resplit-only" else [json.dumps(["add", str(root)])]
+            check(f"held cli {flag}: hand-off as usual, exit 1, listed once",
+                  lines == want and p.returncode == 1
                   and p.stdout.count("invalid split: BookA [chapter_gap]") == 1
-                  and ("[held]" in p.stdout) == (flag != "--resplit-only"),
-                  (p.returncode, p.stdout[-800:], p.stderr[-400:]))
-        _report(root, {"BookA": {"status": "ok", "valid": True, "errors": []}})
-        p = subprocess.run([sys.executable, "-B", str(HERE / "post_convert.py"), "--index", "--corpus", str(root)],
-                           env=env, capture_output=True, text=True, encoding="utf-8")
-        lines = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
-        check("fixed: corpus.py add ran once, exit 0",
-              lines == [json.dumps(["add", str(root)])] and p.returncode == 0, (lines, p.returncode, p.stdout[-500:]))
+                  and (root / pc.HELD_DIR / "BookA" / "_fix_request.md").exists(),
+                  (lines, p.returncode, p.stdout[-800:], p.stderr[-400:]))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -369,7 +420,7 @@ def test_held_cli():
 if __name__ == "__main__":
     for t in (test_marker_written, test_marker_never_overwritten, test_source_marker_not_copied,
               test_byte_identical_otherwise, test_guideline_layout, test_index_routes,
-              test_index_cli_exit_code, test_held_books, test_held_cli):
+              test_index_cli_exit_code, test_held_books, test_held_plan, test_held_cli):
         try:
             t()
         except Exception as e:  # noqa: BLE001
