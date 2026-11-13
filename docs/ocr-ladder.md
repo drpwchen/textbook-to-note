@@ -19,7 +19,8 @@ NVIDIA (shipped as a Docker image), llama.cpp everywhere else. So the tier
 question is now "which server can I stand up, and how big a KV cache does it
 want", not "how large a batch fits". Setup commands, the interface contract and
 the memory caps are in [`surya-adapter.md`](surya-adapter.md); this table is
-only for sizing.
+only for sizing. The Embedding column was written for `bge-m3`; ask-your-library now
+defaults to `qwen3-embedding:0.6b` for corpora, whose fit on these tiers has not been measured here.
 
 | Tier | Text (born-digital) | OCR (scanned) | Vision QC model (ollama) | Embedding (semantic index) | Skip / caveats |
 |---|---|---|---|---|---|

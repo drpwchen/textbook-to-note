@@ -72,7 +72,7 @@ PyMuPDF 文字抽取，每頁約 130 毫秒。三個不那麼直覺的設計：
 
 ### 第三關 · 檢索 — 在幾十本書裡找到對的那本
 
-跨書搜尋跑在與姊妹專案 [**ask-your-library**](https://github.com/drpwchen/ask-your-library) 相同的引擎上 — 本地 LanceDB + `bge-m3` embeddings，資料不出你的電腦。在單純相似度之上，我們加了**來源加權**：把你最信任的參考書（考試指定用書、學會官方教科書）分數調高，並依版本新舊調整，讓 AI 在任何主題上優先取用**你**信任的來源。
+跨書搜尋跑在與姊妹專案 [**ask-your-library**](https://github.com/drpwchen/ask-your-library) 相同的引擎上 — 本地 LanceDB + `qwen3-embedding:0.6b` embeddings（它對教科書 corpus 的預設），資料不出你的電腦。在單純相似度之上，我們加了**來源加權**：把你最信任的參考書（考試指定用書、學會官方教科書）分數調高，並依版本新舊調整，讓 AI 在任何主題上優先取用**你**信任的來源。
 
 ### 第四關 · 撰寫 — 一套筆記演算法，不只是一段 prompt
 
@@ -119,6 +119,8 @@ PyMuPDF 文字抽取，每頁約 130 毫秒。三個不那麼直覺的設計：
 
 裝好後是 `/textbook-to-note:textbook-to-md` 與 `/textbook-to-note:figure-remap`，會直接指向 plugin 自帶的腳本，不用再替換 `{REPO}`。plugin 不會幫你裝 Python 套件：skill 執行的是 `python`，那個 Python 要有轉檔器的依賴（在 clone 下來的 repo 裡 `pip install -r requirements.txt`）。語意搜尋不在 plugin 裡，是[快速上手](examples/quickstart.md#5-選配用-ask-your-library-做語意搜尋約-23-分鐘)第 5 步的選配。
 
+請用上面的 GitHub 寫法。本機路徑的 marketplace（`/plugin marketplace add <資料夾>`）會把整個資料夾複製進 Claude Code 的 plugin 快取，連同你在那裡跑過轉檔留下的 `.venv/`、`output/`、`corpus/`（一次實測 312 MB）；要從本機試 plugin，請指向一份乾淨的 `git clone`，不要指向你的工作目錄。
+
 ## 目錄結構
 
 ```
@@ -136,7 +138,7 @@ shared/       環境變數驅動的設定（config.py）
 
 - Python 3.10+，`pip install -r requirements.txt`（或 `pip install -e .`，會多出 `t2n-convert` / `t2n-post-convert` 指令）
 - **純 CPU 是一等公民路徑**（數位原生 PDF，最常見的情況），不需要 GPU
-- 選用（處理掃描書的 OCR 階梯與語意搜尋）：NVIDIA GPU 或 Apple Silicon + [Surya OCR](https://github.com/VikParuchuri/surya)、[ollama](https://ollama.com) 加小視覺模型與 `bge-m3` embeddings，全部本機執行，資料不出你的電腦。抽圖與其 QC 閘門完全不需要這些（0.7.1 起為純計算）。見 [`docs/ocr-ladder.md`](docs/ocr-ladder.md) 的硬體分級表
+- 選用（處理掃描書的 OCR 階梯與語意搜尋）：NVIDIA GPU 或 Apple Silicon + [Surya OCR](https://github.com/VikParuchuri/surya)、[ollama](https://ollama.com) 加小視覺模型與 `qwen3-embedding:0.6b` embeddings，全部本機執行，資料不出你的電腦。抽圖與其 QC 閘門完全不需要這些（0.7.1 起為純計算）。見 [`docs/ocr-ladder.md`](docs/ocr-ladder.md) 的硬體分級表
 - 在 Windows 11 與 macOS 上測試過；Windows 特有的坑都在程式碼裡處理掉了（cp950 subprocess 解碼、路徑操作）
 
 ## 請用你自己的書

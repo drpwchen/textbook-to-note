@@ -39,7 +39,7 @@ hand-running scripts.
                     ┌─────────▼─────────┐                          ┌───────────▼───────────┐
                     │ optional semantic  │                          │  AI note-writing        │
                     │ index (LanceDB +   │◄────── query ───────────│  workflow                │
-                    │ bge-m3 via ollama) │                          │  (workflows/note-        │
+                    │ qwen3-embedding)   │                          │  (workflows/note-        │
                     └────────────────────┘                          │  writing.md)             │
                                                                      └───────────┬───────────┘
                                                                                  │
@@ -125,7 +125,7 @@ table-recovery pass for scan-only books that routed through OCR
 ### 2. Semantic index (optional)
 
 For large corpora, a local vector index (LanceDB + a local embedding model
-served through ollama, e.g. `bge-m3`) enables concept-level search across
+served through ollama; ask-your-library's default for corpora is `qwen3-embedding:0.6b`) enables concept-level search across
 every converted book, in addition to plain-text `grep`. This is optional:
 grep-only works fine for a handful of books; the index pays off once you have
 dozens.

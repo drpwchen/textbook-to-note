@@ -108,6 +108,14 @@ the docs use the new name. Env vars (`VAULT_SEARCH_DIR`, `VAULT_SEARCH_PY`) and 
 - **`--index` with nothing configured** prints `[skip]` and the exact `corpus.py add` command
   to run, exit 0. `VAULT_SEARCH_DIR` set to something that is not a vault-search checkout says
   so instead of silently skipping.
+- **Docs (quickstart / plugin)**: the quickstart's activate step covers Git Bash, PowerShell and
+  macOS/Linux; step 5 installs ask-your-library in its own venv, calls that venv's Python by
+  absolute path for `corpus.py add` and `claude mcp add`, needs no `VAULT_PATH`
+  (ask-your-library ≥ 3.3.0), and gives `corpus.py add` as 6–144 s (first run loads the model).
+  The READMEs name ask-your-library's corpus embedding model, `qwen3-embedding:0.6b` (was
+  `bge-m3`, its vault-notes model). `plugin.json` and `marketplace.json` share one description
+  (skills only; install requirements from a clone), and the README recommends the GitHub
+  marketplace form: a local-path one copies the whole folder, `.venv/` included, into the cache.
 - **Docs**: AGENTS.md Step 5, `docs/setup-details.md`, `docs/architecture.md`, both READMEs and
   the `textbook-to-md` skill describe Profile C as `convert.py` → `convert.py --resplit` →
   `corpus.py add <corpus>`, and how to convert guidelines into `<corpus>/_Guidelines/<Name>/`

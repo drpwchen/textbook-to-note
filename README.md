@@ -85,7 +85,7 @@ A table of contents is too coarse (one topic spans many chapters); manual tags d
 
 ### 3 · Retrieve — find the right book among dozens
 
-Cross-book search runs on the same engine as its sibling project [**ask-your-library**](https://github.com/drpwchen/ask-your-library) — local LanceDB + `bge-m3` embeddings, nothing leaves your machine. On top of plain similarity we add **source weighting**: boost your most-trusted references (exam-designated texts, official society textbooks) and down-weight by edition age, so on any topic the AI reaches for the source *you* trust first.
+Cross-book search runs on the same engine as its sibling project [**ask-your-library**](https://github.com/drpwchen/ask-your-library) — local LanceDB + `qwen3-embedding:0.6b` embeddings (its default for textbook corpora), nothing leaves your machine. On top of plain similarity we add **source weighting**: boost your most-trusted references (exam-designated texts, official society textbooks) and down-weight by edition age, so on any topic the AI reaches for the source *you* trust first.
 
 ### 4 · Write — a note-writing algorithm, not a prompt
 
@@ -132,6 +132,8 @@ The two skills also ship as a Claude Code plugin, and this repo is its own marke
 
 The skills load as `/textbook-to-note:textbook-to-md` and `/textbook-to-note:figure-remap` and point at the plugin's own copy of the scripts, so there is no `{REPO}` placeholder to replace. The plugin installs no Python packages: the skills run `python`, which needs the converter's dependencies (`pip install -r requirements.txt` from a clone). Semantic search is not part of the plugin — it is the optional ask-your-library step of the [quickstart](examples/quickstart.md#5--optional-semantic-search-with-ask-your-library-23-min).
 
+Use the GitHub form above. A local-path marketplace (`/plugin marketplace add <folder>`) copies the whole folder into Claude Code's plugin cache — including `.venv/`, `output/` and `corpus/` if you have run the converter there (312 MB in one test) — so to try the plugin from disk, point it at a clean `git clone`, not your working copy.
+
 ## Repo layout
 
 ```
@@ -149,7 +151,7 @@ shared/       env-driven configuration (config.py)
 
 - Python 3.10+, `pip install -r requirements.txt` (or `pip install -e .` for the `t2n-convert` / `t2n-post-convert` commands)
 - **CPU-only is a first-class path** for born-digital PDFs (the common case) — no GPU needed
-- Optional, for scanned books (OCR ladder) and semantic search: an NVIDIA GPU or Apple Silicon + [Surya OCR](https://github.com/VikParuchuri/surya), [ollama](https://ollama.com) with a small vision model and `bge-m3` for embeddings — all local, nothing leaves your machine. Figure extraction and its QC gate need none of this (pure computation since 0.7.1). See the hardware-tier table in [`docs/ocr-ladder.md`](docs/ocr-ladder.md).
+- Optional, for scanned books (OCR ladder) and semantic search: an NVIDIA GPU or Apple Silicon + [Surya OCR](https://github.com/VikParuchuri/surya), [ollama](https://ollama.com) with a small vision model and `qwen3-embedding:0.6b` for embeddings — all local, nothing leaves your machine. Figure extraction and its QC gate need none of this (pure computation since 0.7.1). See the hardware-tier table in [`docs/ocr-ladder.md`](docs/ocr-ladder.md).
 - Tested on Windows 11 and macOS; Windows-specific gotchas are handled in code (cp950 subprocess decoding, atomic-ish path ops)
 
 ## Bring your own books
