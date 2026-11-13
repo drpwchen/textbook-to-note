@@ -58,6 +58,24 @@ the docs use the new name. Env vars (`VAULT_SEARCH_DIR`, `VAULT_SEARCH_PY`) and 
 - **`pyproject.toml`**: `pip install -e .` installs the core dependencies and the
   `t2n-convert`, `t2n-post-convert` and `t2n-split-validate` commands. `requirements.txt` keeps
   working.
+- **Claude Code plugin and marketplace in this repo** (`.claude-plugin/plugin.json`,
+  `.claude-plugin/marketplace.json`, marketplace name `drpwchen`): `/plugin marketplace add
+  drpwchen/textbook-to-note`, then `/plugin install textbook-to-note@drpwchen`, installs the
+  two skills as `/textbook-to-note:textbook-to-md` and `/textbook-to-note:figure-remap`. When
+  loaded as a plugin, the skills' `{REPO}` is the plugin's own folder
+  (`${CLAUDE_PLUGIN_ROOT}`), so no placeholder needs replacing; copying the skills by hand
+  works as before. The plugin installs no Python packages and no MCP server: Python
+  dependencies are still `pip install -r requirements.txt`, and semantic search stays the
+  optional ask-your-library step.
+- **5-minute quickstart** (`examples/quickstart.md`, English and 繁體中文, linked from the top of
+  both READMEs): convert the sample → `--resplit` → ask Claude Code from the corpus with page
+  citations → optionally `corpus.py add` and ask through `textbook_search`. Every step was run
+  end to end once on Windows 11; the page lists the measured times (convert 1.1 s, resplit
+  0.4 s for 33 pages).
+- **Sample book for a first run**: `examples/sample/` holds Chapter 1 of OpenStax *Anatomy and
+  Physiology* (1st ed., CC BY 4.0; 33 pages, 2.2 MB; attribution in
+  `examples/sample/ATTRIBUTION.md`) and a `_split_config.json` entry for it — a one-chapter
+  excerpt is too short for `--resplit` to detect the chapter level on its own.
 
 ### Changed
 - **A book that needs OCR while Surya is not set up now fails the `--batch-dir` run** instead of
@@ -99,6 +117,12 @@ the docs use the new name. Env vars (`VAULT_SEARCH_DIR`, `VAULT_SEARCH_PY`) and 
 - **`INDEXER_SCRIPT`** still runs exactly as before (`--incremental`; `--audit` reads that
   indexer's `lance_db` / `textbook_chunks`), with a warning on stderr pointing at
   `corpus.py add`. It wins over `VAULT_SEARCH_DIR` while set, so existing setups do not change.
+
+### Fixed
+- **`figure-remap` skill metadata was dropped.** Its `description` was a plain YAML scalar
+  containing `: `, so the frontmatter failed to parse — `claude plugin validate`: "At runtime
+  this skill loads with empty metadata (all frontmatter fields silently dropped)". It is now a
+  folded block; the text is unchanged.
 
 Specs: `openspec/changes/archive/corpus-handoff/`, `openspec/changes/archive/private-upport/`,
 `openspec/changes/archive/maintainer-config/`.

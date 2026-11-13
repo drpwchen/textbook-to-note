@@ -12,6 +12,9 @@ description: >
 
 > This skill calls scripts in your clone of the textbook-to-note repo. At
 > install time, replace `{REPO}` below with the absolute path of the clone.
+> **Installed as a Claude Code plugin?** Then `{REPO}` is `${CLAUDE_PLUGIN_ROOT}` —
+> Claude Code fills in that path when the skill loads. If the previous line shows a
+> `$`-placeholder instead of a path, the skill was copied by hand: use the clone's path.
 
 ## Purpose
 

@@ -4,6 +4,8 @@
 
 [English README → README.md](README.md)
 
+**第一次來？→ [5 分鐘快速上手](examples/quickstart.md#繁體中文快速上手)**：轉換隨附的範例章節，讓 Claude 依它回答並附頁碼。skill 以 plugin 安裝：[以 Claude Code plugin 安裝](#以-claude-code-plugin-安裝)。
+
 ## 為什麼做這個
 
 我從醫學生時代就很愛做筆記，這些年累積了幾千份，但已經很難再把每一份都按自己的架構做到相同品質。在資訊越來越多的時代，能信任的高品質來源反而變得珍貴，而教科書就是其中最好的——可是光專科指定參考書就四十多本，同個概念散在好幾本書的不同章節，要全部念過幾乎不可能。LLM 擅長處理長上下文，可是一次丟他幾百本書也不切實際；真正的解法是搭配好的內容搜尋與資料庫，再把我做筆記的流程調教給 AI，讓它有根據、有架構地產出筆記，我只要專心把整理好的高密度資料吸收進腦袋就好。
@@ -106,6 +108,17 @@ PyMuPDF 文字抽取，每頁約 130 毫秒。三個不那麼直覺的設計：
 
 [`AGENTS.md`](AGENTS.md) 是寫給 agent 看的：裝依賴、設定、轉第一本書、安裝兩個 Claude Code skill、跑筆記流程，還有 token 護欄，避免天真的 agent 把整本書讀進 context 燒掉上百萬 token。
 
+## 以 Claude Code plugin 安裝
+
+兩個 skill 也包成 Claude Code plugin，這個 repo 本身就是 marketplace。在 Claude Code 裡：
+
+```
+/plugin marketplace add drpwchen/textbook-to-note
+/plugin install textbook-to-note@drpwchen
+```
+
+裝好後是 `/textbook-to-note:textbook-to-md` 與 `/textbook-to-note:figure-remap`，會直接指向 plugin 自帶的腳本，不用再替換 `{REPO}`。plugin 不會幫你裝 Python 套件：skill 執行的是 `python`，那個 Python 要有轉檔器的依賴（在 clone 下來的 repo 裡 `pip install -r requirements.txt`）。語意搜尋不在 plugin 裡，是[快速上手](examples/quickstart.md#5-選配用-ask-your-library-做語意搜尋約-23-分鐘)第 5 步的選配。
+
 ## 目錄結構
 
 ```
@@ -115,7 +128,7 @@ citations/    章節引用回查——證明每個「Author Ch.N」真的指向�
 skills/       可直接放入 Claude Code 的 skill 定義（textbook-to-md、figure-remap）
 workflows/    筆記撰寫演算法（可改造成你自己的筆記系統）
 docs/         架構、OCR 階梯 + 硬體分級模型表、OCR adapter 介面規格
-examples/     目標筆記格式範例
+examples/     快速上手、可轉換的範例章節（OpenStax，CC BY 4.0）、目標筆記格式範例
 shared/       環境變數驅動的設定（config.py）
 ```
 
@@ -128,7 +141,7 @@ shared/       環境變數驅動的設定（config.py）
 
 ## 請用你自己的書
 
-這個工具**不含任何教科書內容**。它處理你已擁有的 PDF：買的電子書、機構授權下載、開放授權教材（[OpenStax](https://openstax.org)），或在當地法律允許下自己掃描的紙本書。請尊重書籍的授權條款。
+這個工具**不含任何教科書內容**，唯一例外是[快速上手](examples/quickstart.md#繁體中文快速上手)用的一章開放授權範例（[出處與授權](examples/sample/ATTRIBUTION.md)）。它處理你已擁有的 PDF：買的電子書、機構授權下載、開放授權教材（[OpenStax](https://openstax.org)），或在當地法律允許下自己掃描的紙本書。請尊重書籍的授權條款。
 
 ## 相關專案
 

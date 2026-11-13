@@ -1,0 +1,16 @@
+{
+  "name": "drpwchen",
+  "owner": {
+    "name": "Po-Wei Chen (drpwchen)",
+    "url": "https://github.com/drpwchen"
+  },
+  "description": "Claude Code plugins by drpwchen: textbooks to cited notes.",
+  "plugins": [
+    {
+      "name": "textbook-to-note",
+      "source": "./",
+      "description": "Turn your own PDF/EPUB textbooks into page-cited markdown and extract figures through a QC gate (skills: textbook-to-md, figure-remap).",
+      "category": "productivity"
+    }
+  ]
+}

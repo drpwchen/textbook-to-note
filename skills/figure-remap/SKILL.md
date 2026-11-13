@@ -1,12 +1,16 @@
 ---
 name: figure-remap
-description: Extract single figures from PDF textbooks on-demand with built-in QC verification. Primary use: when writing/supplementing a note that needs an embedded figure (anatomy, classification, algorithm, imaging). Each call checks an existing fast-path crop, re-extracts from PDF if missing/wrong, retries with local-vision guidance, and escalates to a frontier-model vision read only if all else fails. Also contains legacy batch tools for whole-book re-extraction. Trigger: "extract figure", "figure for note", or proactively when a note's TODO/REF references a figure not yet embedded.
+description: >
+  Extract single figures from PDF textbooks on-demand with built-in QC verification. Primary use: when writing/supplementing a note that needs an embedded figure (anatomy, classification, algorithm, imaging). Each call checks an existing fast-path crop, re-extracts from PDF if missing/wrong, retries with local-vision guidance, and escalates to a frontier-model vision read only if all else fails. Also contains legacy batch tools for whole-book re-extraction. Trigger: "extract figure", "figure for note", or proactively when a note's TODO/REF references a figure not yet embedded.
 ---
 
 # figure-remap — deterministic document-grounding system
 
 > This skill calls scripts in your clone of the textbook-to-note repo. At
 > install time, replace `{REPO}` below with the absolute path of the clone.
+> **Installed as a Claude Code plugin?** Then `{REPO}` is `${CLAUDE_PLUGIN_ROOT}` —
+> Claude Code fills in that path when the skill loads. If the previous line shows a
+> `$`-placeholder instead of a path, the skill was copied by hand: use the clone's path.
 
 ## Architecture (read this before implementation details)
 
