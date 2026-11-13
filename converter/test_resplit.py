@@ -500,11 +500,56 @@ def test_validator_negatives():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_cross_level_chapters():
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        deep = [[1, "Part I", 3], [2, "Chapter 1 Gait", 3], [2, "Chapter 2 Balance", 6],
+                [3, "Section X", 9], [4, "Chapter 3 Spasticity", 9], [5, "Overview", 9], [1, "Index", 12]]
+        shallow = [[1, "Chapter 1 Gait", 3], [2, "Overview", 3], [2, "More", 4], [1, "Part I", 5],
+                   [2, "Chapter 2 Balance", 6], [2, "Chapter 3 Spasticity", 9]]
+        taken = [[1, "Part I", 3], [2, "Chapter 1 Gait", 3], [2, "Chapter 2 Balance", 6],
+                 [3, "Chapter 2 summary", 7], [2, "Chapter 3 Spasticity", 9]]
+        books = {b: {"full_text.md": make_full_text()} for b in ("Deep", "Shallow", "Taken", "Off")}
+        corpus, pdf_root, out = build(tmp, books, {"Deep": deep, "Shallow": shallow, "Taken": taken,
+                                                   "Off": deep})
+        out.mkdir()
+        (out / "_split_config.json").write_text(json.dumps({
+            "Deep": {"chapter_level": 2, "reason": "fixture has only 3 chapters (auto needs 3 at one level)"},
+            "Shallow": {"chapter_level": 2, "reason": "t"},
+            "Off": {"chapter_level": 2, "promote_chapters": False, "reason": "t"}}), encoding="utf-8")
+        run(corpus, out, [pdf_root])
+        m = manifest(out, "Deep")
+        by = {f["chapter_number"]: f for f in m["files"] if f["chapter_number"]}
+        check("deep: chapter 3 file starts p9", by.get(3, {}).get("pdf_page_start") == 9, by)
+        check("deep: chapter 2 ends p8", by.get(2, {}).get("pdf_page_end") == 8, by)
+        lv = [s["level"] for s in m["sections"] if s["title"].startswith("Chapter 3")]
+        check("deep: sections keep level 4", lv == [4], lv)
+        check("deep: validates", sm.validate_book(out / "Deep")["ok"], sm.validate_book(out / "Deep")["errors"])
+        rep = json.loads((out / "_resplit_report.json").read_text(encoding="utf-8"))
+        check("deep: report counts promotion", "promoted_chapters" in json.dumps(rep["Deep"]), rep["Deep"])
+        m = manifest(out, "Shallow")
+        one = [f for f in m["files"] if f["pdf_page_start"] in (3, 4)]
+        check("shallow: pages 3-4 one body file numbered 1",
+              len(one) == 1 and one[0]["chapter_number"] == 1 and one[0]["kind"] == "body", one)
+        m = manifest(out, "Taken")
+        by = {f["chapter_number"]: f for f in m["files"] if f["chapter_number"]}
+        check("taken: nothing promoted", by.get(2, {}).get("pdf_page_end") == 8 and
+              not any(f["pdf_page_start"] == 7 for f in m["files"]), m["files"])
+        m = manifest(out, "Off")
+        check("off: chapter 3 stays inside chapter 2",
+              3 not in {f["chapter_number"] for f in m["files"]}, m["files"])
+        v = sm.validate_book(out / "Off")
+        check("off: validator says chapter_unmapped",
+              any(e["check"] == "chapter_unmapped" for e in v["errors"]), v["errors"])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     for t in (test_helpers, test_page_labels_and_writeback, test_resplit_normal, test_same_as_conversion,
               test_unsafe_and_missing_pdf, test_anchoring_config, test_reconstruct_and_overrides,
               test_deep_headings, test_dot_folders_skipped, test_underscore_book_config, test_override_reclassifies_front, test_config_toc,
-              test_validator_negatives):
+              test_validator_negatives, test_cross_level_chapters):
         try:
             t()
         except Exception as e:  # noqa: BLE001

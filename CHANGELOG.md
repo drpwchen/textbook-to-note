@@ -8,6 +8,32 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [0.8.1] — 2026-11-13 — `--resplit`: chapters bookmarked at another outline level
+
+### Fixed
+- **A `Chapter N` bookmark at a different outline level than the book's other chapters is now
+  split as a chapter.** Before, such a chapter was swallowed by its neighbour or left
+  unnumbered: one book had chapters 26–30 inside the file of chapter 25 (they sat one Section
+  deeper in the outline); two books had chapter 1 at the top level, so its sections became
+  unnumbered files marked as front matter. The entry and the entries below it move to the
+  chapter level; `sections` in the manifest keep the PDF's own levels; the run report counts
+  `promoted_chapters`. Only `Chapter N` / `Chap. N` titles, only when the book has a chapter
+  level, only numbers no chapter already carries. Off switch per book:
+  `"promote_chapters": false` in the split config. Books whose config numbers files by hand
+  (`chapter_number_overrides`) are left as they were.
+
+### Added
+- **Validator check `chapter_unmapped`**: a book fails when its outline names `Chapter N` and
+  no file carries N. The 0.8.0 validator checked only the numbers that were assigned, so the
+  books above passed.
+
+### Measured
+On the author's corpus (284 books), resplit before vs after: 3 books changed, all three
+corrections (checked by reading each new chapter's first lines); 281 byte-identical in files and
+sections. The new check found 5 books that 0.8.0 passed while wrong — the 3 above plus 2 fixed by
+config entries (an answer key repeating "Chapter 1…14", and chapters bookmarked as bare
+`Chapter-N` labels). Validator: 283 / 284, the same remaining book as 0.8.0.
+
 ## [0.8.0] — 2026-11-10 — `--resplit`: re-split a corpus with a per-book manifest and validator
 
 ### Added

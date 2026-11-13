@@ -505,6 +505,20 @@ def resplit_unit(src_unit: Path, out_unit: Path, rel_prefix: str, pdf: Path | No
     if toc and method != "pattern":
         entries, notes = transform_toc(toc, cfg, content)
         info.update(notes)
+        orig_levels = [e[0] for e in entries]
+        if cfg.get("promote_chapters", True) is not False and \
+                cfg.get("chapter_numbers", True) is not False and \
+                not cfg.get("chapter_number_overrides"):  # hand-numbered books keep their split
+            # a `Chapter N` entry at another level is still a chapter (Magee 26-30 at L4,
+            # Tecklin/Nordin chapter 1 at L1): move it and its subtree to the chapter level
+            pre_level = cfg.get("chapter_level") or sm.choose_chapter_level(
+                [(e[0], e[1]) for e in entries], cfg.get("chapter_regex"))[0]
+            if pre_level is not None and pre_level <= split_levels:
+                new_levels, promoted = sm.promote_keyword_chapters(entries, pre_level,
+                                                                   cfg.get("chapter_regex"))
+                if promoted:
+                    info["promoted_chapters"] = promoted
+                    entries = [[lv, e[1], e[2]] for lv, e in zip(new_levels, entries)]
         shift = split_levels - 2
         placed = [[e[0] - shift, e[1], e[2]] for e in entries if e[2] is not None]
         with contextlib.redirect_stdout(buf):
@@ -542,8 +556,8 @@ def resplit_unit(src_unit: Path, out_unit: Path, rel_prefix: str, pdf: Path | No
                 lvl, title, _ = entries[ei]
                 records.append(dict(rel=rel, seq=n, title=title.strip(), chapter=state[ei],
                                     kind=sm.classify_kind(title), level=lvl))
-            sections = [dict(level=e[0], title=e[1].strip(), pdf_page=e[2], kind=sm.classify_kind(e[1]))
-                        for e in entries]
+            sections = [dict(level=ol, title=e[1].strip(), pdf_page=e[2], kind=sm.classify_kind(e[1]))
+                        for ol, e in zip(orig_levels, entries)]
     if not records:
         with contextlib.redirect_stdout(buf):
             chapters = cv.split_into_chapters(content, out_unit, total_pages, pdf_path=None)

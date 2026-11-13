@@ -184,6 +184,48 @@ def choose_chapter_level(entries, regex: str | None = None, min_numbers: int = 3
     return None, "no numbered titles"
 
 
+KEYWORD_CHAPTER_RE = re.compile(r"^\s*(?:chapter|chap\.)\s*(\d{1,3})\b", re.I)
+
+
+def keyword_chapter_number(title: str) -> int | None:
+    """N for a title written `Chapter N` / `Chap. N`; None for anything else (`7 Gait` too)."""
+    m = KEYWORD_CHAPTER_RE.match(title or "")
+    return int(m.group(1)) if m else None
+
+
+def promote_keyword_chapters(entries, chapter_level: int | None, regex: str | None = None):
+    """entries: [(level, title, pdf_page | None)] in outline order. Returns (levels, promoted).
+
+    An entry titled `Chapter N` at another level than the chapter level, whose N no
+    chapter-level entry carries, moves to the chapter level together with the entries below it
+    (until the next entry at its original level or shallower). Entries without a page, or whose
+    page is lower than the last chapter-level page before them, stay where they are."""
+    levels = [e[0] for e in entries]
+    if chapter_level is None:
+        return levels, 0
+    taken = {parse_chapter_number(e[1], regex) for e in entries if e[0] == chapter_level} - {None}
+    promoted = 0
+    last_page = 0
+    i = 0
+    while i < len(entries):
+        lvl, title, page = entries[i][0], entries[i][1], entries[i][2]
+        n = keyword_chapter_number(title)
+        if (levels[i] != chapter_level and lvl == levels[i] and n is not None and n not in taken
+                and page is not None and page >= last_page):
+            delta = chapter_level - lvl
+            j = i + 1
+            while j < len(entries) and entries[j][0] > lvl:
+                levels[j] = max(1, entries[j][0] + delta)
+                j += 1
+            levels[i] = chapter_level
+            taken.add(n)
+            promoted += 1
+        if levels[i] == chapter_level and page is not None:
+            last_page = max(last_page, page)
+        i += 1
+    return levels, promoted
+
+
 def chapter_state_walk(entries, chapter_level: int | None, regex: str | None = None):
     """For each outline entry (level, title) in order, the chapter number in force at it:
     its own number at the chapter level, inherited below it, None above it."""
@@ -559,6 +601,13 @@ def validate_book(book_dir: Path, manifest: dict | None = None, figures_root=Non
         allowed = set(manifest.get("missing_chapters_ok") or [])
         if set(missing) - allowed:
             err("chapter_gap", f"chapter numbers missing: {sorted(set(missing) - allowed)[:20]}")
+    # outline says `Chapter N` exists but no file carries N (merged into a neighbour, or unnumbered)
+    if manifest["split_method"] != "per_chapter_pdf":
+        allowed = set(manifest.get("missing_chapters_ok") or [])
+        named = {keyword_chapter_number(s.get("title")) for s in manifest["sections"]} - {None}
+        unmapped = sorted(named - set(numbers) - allowed)
+        if unmapped:
+            err("chapter_unmapped", f"outline chapters with no file: {unmapped[:20]}")
     if toc is not None:
         if len(numbers) != toc:
             err("toc_count", f"{len(numbers)} numbered chapters, TOC lists {toc}")
