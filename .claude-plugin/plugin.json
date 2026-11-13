@@ -1,0 +1,24 @@
+{
+  "name": "textbook-to-note",
+  "displayName": "textbook-to-note",
+  "version": "0.8.1",
+  "description": "Turn your own PDF/EPUB textbooks into page-cited markdown (0 LLM tokens) and extract figures through a deterministic QC gate. Skills: textbook-to-md, figure-remap. Needs Python 3.10+ and `pip install -r requirements.txt` from the plugin folder.",
+  "author": {
+    "name": "Po-Wei Chen (drpwchen)",
+    "url": "https://github.com/drpwchen"
+  },
+  "homepage": "https://github.com/drpwchen/textbook-to-note",
+  "repository": "https://github.com/drpwchen/textbook-to-note",
+  "license": "MIT",
+  "keywords": [
+    "textbook",
+    "pdf",
+    "markdown",
+    "ocr",
+    "citations",
+    "notes",
+    "obsidian",
+    "rag",
+    "medical-education"
+  ]
+}

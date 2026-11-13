@@ -3,6 +3,7 @@ books/
 output/
 cache/
 *.pdf
+!examples/sample/*.pdf
 *.epub
 
 # Python

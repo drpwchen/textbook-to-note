@@ -1,0 +1,9 @@
+{
+  "OpenStax_Anatomy-and-Physiology-Ch1_1e_2013": {
+    "chapter_level": 1,
+    "retitle": {
+      "Glossary": "Key Terms"
+    },
+    "reason": "One-chapter excerpt: its outline holds a single 'Chapter 1' entry, and the chapter level is only detected automatically from 3 numbered entries. The outline calls the last section 'Glossary'; the page heading reads 'KEY TERMS'."
+  }
+}
