@@ -130,16 +130,18 @@ every converted book, in addition to plain-text `grep`. This is optional:
 grep-only works fine for a handful of books; the index pays off once you have
 dozens.
 
-**No indexer ships in this repo.** `converter/post_convert.py` provides the
-wiring only: `run_indexer()` invokes `INDEXER_SCRIPT --incremental`, and
-`audit_index_coverage()` compares book folders against rows in the LanceDB
-directory at `VAULT_SEARCH_DIR`, backfilling via `INDEXER_SCRIPT --book
-<name>`. With `INDEXER_SCRIPT` unset both steps print `[skip]` and return
-success. To turn semantic search on, point `INDEXER_SCRIPT` at the indexer
-from the companion repo
-[vault-search](https://github.com/drpwchen/vault-search), or at any script
-of your own implementing those two flags. `lancedb` is likewise a manual
-install, not part of `requirements.txt`.
+**No indexer ships in this repo, and it calls none.** The boundary is a
+folder: `convert.py --resplit` writes a corpus root (per-book
+`_manifest.json`, root `corpus.json` = `{"format": "t2n-corpus/1", "kind":
+"textbook"}`, guidelines under `_Guidelines/<Name>/`), and the companion repo
+[vault-search](https://github.com/drpwchen/vault-search) indexes it with
+`server/corpus.py add <corpus root>`. The format is specified once, in
+vault-search's
+[`docs/corpus-format.md`](https://github.com/drpwchen/vault-search/blob/main/docs/corpus-format.md).
+`post_convert.py --index` is only a shortcut for that command when
+`VAULT_SEARCH_DIR` points at a vault-search checkout; unset, it prints the
+command and `[skip]`. The older `INDEXER_SCRIPT` hook (`--incremental` /
+`--book`) is deprecated and kept only for existing setups.
 
 Search strategy used by the note-writing workflow:
 - Known keyword → grep first (fastest, exact, 0 tokens)

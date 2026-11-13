@@ -8,6 +8,41 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
+## [0.8.1] — 2026-11-13 — The corpus is the hand-off: this repo no longer talks to an indexer
+
+Semantic search (Profile C) was documented as `INDEXER_SCRIPT` pointing at vault-search with an
+`--incremental` / `--book` CLI. vault-search's current indexer has neither flag, so
+`post_convert.py --index` died with an argparse error, and nothing said the corpus had to be
+re-split first. Now the boundary is a folder: this repo writes a corpus, vault-search indexes it
+with one command. Profiles A and B are unaffected and need no RAG at all.
+
+### Added
+- **`--resplit` writes `<out>/corpus.json`** = `{"format": "t2n-corpus/1", "kind": "textbook"}`,
+  the marker of the corpus format specified in vault-search's
+  [`docs/corpus-format.md`](https://github.com/drpwchen/vault-search/blob/main/docs/corpus-format.md).
+  Written only when absent; an existing `corpus.json` is never overwritten (a different one gets
+  a one-line warning on stderr, exit code unchanged), and the source corpus's own `corpus.json`
+  is not copied. Every other output file is byte-identical to 0.8.0.
+- **`post_convert.py --index --corpus DIR`**: with `VAULT_SEARCH_DIR` pointing at a vault-search
+  checkout, runs `<VAULT_SEARCH_DIR>/server/corpus.py add DIR` (with `VAULT_SEARCH_PY` if set)
+  and exits with its exit code. `--corpus` defaults to `OUTPUT_DIR`.
+
+### Changed
+- **`--index` with nothing configured** prints `[skip]` and the exact `corpus.py add` command
+  to run, exit 0. `VAULT_SEARCH_DIR` set to something that is not a vault-search checkout says
+  so instead of silently skipping.
+- **Docs**: AGENTS.md Step 5, `docs/setup-details.md`, `docs/architecture.md`, both READMEs and
+  the `textbook-to-md` skill describe Profile C as `convert.py` → `convert.py --resplit` →
+  `corpus.py add <corpus>`, and how to convert guidelines into `<corpus>/_Guidelines/<Name>/`
+  (a `--batch-dir` run with `OUTPUT_DIR=<output>/_Guidelines`; no new flag).
+
+### Deprecated
+- **`INDEXER_SCRIPT`** still runs exactly as before (`--incremental`; `--audit` reads that
+  indexer's `lance_db` / `textbook_chunks`), with a warning on stderr pointing at
+  `corpus.py add`. It wins over `VAULT_SEARCH_DIR` while set, so existing setups do not change.
+
+Spec: `openspec/changes/archive/corpus-handoff/`. Tests: `converter/test_corpus_handoff.py`.
+
 ## [0.8.0] — 2026-11-13 — `--resplit`: re-split a corpus with a per-book manifest and validator
 
 First public release since 0.7.3; it also carries 0.7.4–0.7.7 (sections below), which were

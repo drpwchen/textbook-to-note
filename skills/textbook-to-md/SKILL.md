@@ -142,9 +142,10 @@ grep -r "your search term" "$OUTPUT_DIR"      # default ./output
 ```
 
 ### 2. Semantic search (optional) — concept match
-If you've set up the optional semantic index (LanceDB + a local embedding
-model — see `docs/architecture.md`), a `textbook_search` tool becomes
-available for concept-level queries that don't depend on exact wording.
+If the user has handed the corpus to vault-search (Profile C: `convert.py
+--resplit` → vault-search's `corpus.py add` — see `docs/setup-details.md`
+Step 5), a `textbook_search` tool becomes available for concept-level
+queries that don't depend on exact wording.
 
 ### Search strategy
 - **Known keyword** → grep first (fastest, exact)
@@ -156,26 +157,24 @@ available for concept-level queries that don't depend on exact wording.
 
 After converting new books, run the post-pipeline:
 ```bash
-# Full pipeline: verify quality + refresh index.md + refresh figure registry + semantic index
+# Full pipeline: verify quality + refresh index.md + refresh figure registry + vault-search hand-off
 python {REPO}/converter/post_convert.py
 
 # Or individual steps:
 python {REPO}/converter/post_convert.py --verify   # check quality only
-python {REPO}/converter/post_convert.py --index    # semantic index only
-python {REPO}/converter/post_convert.py --audit    # report index coverage (no backfill)
+python {REPO}/converter/post_convert.py --index --corpus <CORPUS_ROOT>   # = vault-search corpus.py add <CORPUS_ROOT>
 ```
 
 The pipeline does **not** extract figures — it only verifies page markers,
 refreshes `index.md` + `figure_registry.json` from whatever figures already
-exist, and (optionally) builds the semantic index. Figure extraction is
-never a batch post-step.
+exist, and (optionally) hands a `--resplit` corpus root to vault-search's
+`corpus.py add`, which indexes and audits it. This repo never indexes
+anything itself; with `VAULT_SEARCH_DIR` unset the hand-off prints the
+command and `[skip]`. Figure extraction is never a batch post-step.
 
 Missing page markers do not block indexing by design — EPUBs (reflowable)
-and some vector-glyph PDFs legitimately lack `<!-- page N -->`; the indexer
-handles this gracefully (page metadata = 0). After indexing, a coverage
-audit compares the markdown corpus against the index and auto-backfills any
-book that has markdown but no index rows, so every converted book ends up
-searchable even if a step was skipped.
+and some vector-glyph PDFs legitimately lack `<!-- page N -->` and index with
+page metadata = 0.
 
 ### Figures — do NOT batch-extract
 No pre-extraction step. A whole-book batch figure dump is retired and should

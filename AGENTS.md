@@ -61,8 +61,8 @@ Ask, or infer from context:
   converted markdown is the deliverable.
 - **Profile C only** — semantic search (LanceDB + a local embedding model via
   ollama) pays off once there are more than a handful of books. **This repo
-  ships no indexer** — `INDEXER_SCRIPT` must point at one; grep works with no
-  extra install. Details: [`docs/setup-details.md`](docs/setup-details.md#step-11--profile-c-the-semantic-search-index).
+  ships no indexer** — the companion repo vault-search indexes the corpus
+  folder this repo produces (Step 5); grep works with no extra install. Details: [`docs/setup-details.md`](docs/setup-details.md#step-11--profile-c-the-semantic-search-index).
 
 **Do not ask about GPUs here, and do not install any OCR engine yet.** OCR is
 a reactive exception path in this pipeline, not a prerequisite — see Step 4.5.
@@ -89,7 +89,7 @@ drop books in `./books`, get markdown in `./output`.
 Set env vars only where the defaults don't fit: `BOOKS_DIR` (default `./books`),
 `OUTPUT_DIR` (default `./output`; keep it outside the notes vault), and — only
 when a later step sends you there — `SURYA_VENV_PY` + `SURYA_ADAPTER` (skip
-until Step 4.5), `INDEXER_SCRIPT` + `VAULT_SEARCH_DIR`, and the figure
+until Step 4.5), `VAULT_SEARCH_DIR` (Profile C, Step 5), and the figure
 locations. Full list: [`docs/setup-details.md`](docs/setup-details.md#step-3--environment-variables).
 
 Run `python shared/config.py` to print the resolved configuration and
@@ -154,18 +154,30 @@ steps, engine setup, the `--force` re-run and when to add `--force-surya` — is
 [`docs/setup-details.md`](docs/setup-details.md#step-45--ocr-routing-diagnosis-engine-setup-re-run).
 **Read it before installing anything.**
 
-## Step 5: (Profile C only) Build the semantic index
+## Step 5: (Profile C only) Hand the corpus to vault-search
 
-Skip this step entirely for profiles A and B:
+Skip this step entirely for profiles A and B — they need no index, no
+embedding model and no vault-search. This repo does no indexing: it produces
+a corpus folder, and the companion repo
+[vault-search](https://github.com/drpwchen/vault-search) makes that folder
+searchable. The sequence:
 
 ```bash
-python converter/post_convert.py --index
+python converter/convert.py --batch-dir <BOOKS_DIR>                      # Step 4: books → OUTPUT_DIR
+python converter/convert.py --resplit <OUTPUT_DIR> --out <CORPUS_ROOT> --pdf-root <BOOKS_DIR>
+python <vault-search>/server/corpus.py add <CORPUS_ROOT>                 # run from vault-search's env
 ```
 
-**This step is a hook, not an implementation** — with `INDEXER_SCRIPT` unset it
-prints `[skip]` and returns success, so a green run does *not* mean an index
-exists. Prerequisites and verification:
-[`docs/setup-details.md`](docs/setup-details.md#step-5--the-indexer-is-a-hook-not-an-implementation).
+`--resplit` is not optional here: it writes the per-book `_manifest.json` and
+the root `corpus.json` (format `t2n-corpus/1`,
+[spec](https://github.com/drpwchen/vault-search/blob/main/docs/corpus-format.md))
+that `corpus.py` checks. `corpus.py add` validates, indexes, audits and
+prints the env line to set. `python converter/post_convert.py --index
+--corpus <CORPUS_ROOT>` is a shortcut for the last line when
+`VAULT_SEARCH_DIR` points at the vault-search checkout; with nothing set it
+prints `[skip]` and the command, so a green run does *not* mean an index
+exists. Guidelines, prerequisites and verification:
+[`docs/setup-details.md`](docs/setup-details.md#step-5--hand-the-corpus-to-vault-search).
 
 ## Step 6: (Profiles B/C) Install the two Claude Code skills
 

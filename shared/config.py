@@ -12,8 +12,13 @@ Env overrides:
     SURYA_ADAPTER       -> path to an OCR adapter script (optional); this repo ships
                            converter/surya_adapter.py -- see docs/surya-adapter.md for the
                            interface contract if you want to plug in a different engine
-    INDEXER_SCRIPT      -> path to an external semantic indexer script (optional)
-    VAULT_SEARCH_DIR    -> cache/index dir for an external indexer (optional)
+    VAULT_SEARCH_DIR    -> path to a vault-search checkout (optional); lets
+                           `post_convert.py --index` run its server/corpus.py add
+    VAULT_SEARCH_PY     -> Python interpreter of vault-search's environment for that
+                           call (optional; default: the current interpreter)
+    INDEXER_SCRIPT      -> DEPRECATED: an indexer with an --incremental/--book CLI;
+                           when set, VAULT_SEARCH_DIR keeps its old meaning (the
+                           index directory read by the legacy coverage audit)
     FIGURE_REGISTRY_SCRIPT -> path to a figure-registry generator script (optional)
 
 The OCR/indexer hooks are all optional integrations: if unset (or the path
@@ -42,9 +47,11 @@ OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR") or (REPO_ROOT / "output"))
 SURYA_VENV_PY = Path(os.environ["SURYA_VENV_PY"]) if os.environ.get("SURYA_VENV_PY") else None
 SURYA_ADAPTER = Path(os.environ["SURYA_ADAPTER"]) if os.environ.get("SURYA_ADAPTER") else None
 
-# Optional external semantic-search indexer integration (not part of this repo).
-INDEXER_SCRIPT = Path(os.environ["INDEXER_SCRIPT"]) if os.environ.get("INDEXER_SCRIPT") else None
+# Optional hand-off to vault-search (not part of this repo): corpus.py add <corpus root>.
 VAULT_SEARCH_DIR = Path(os.environ["VAULT_SEARCH_DIR"]) if os.environ.get("VAULT_SEARCH_DIR") else None
+VAULT_SEARCH_PY = Path(os.environ["VAULT_SEARCH_PY"]) if os.environ.get("VAULT_SEARCH_PY") else None
+# Deprecated: external indexer with an --incremental/--book CLI.
+INDEXER_SCRIPT = Path(os.environ["INDEXER_SCRIPT"]) if os.environ.get("INDEXER_SCRIPT") else None
 FIGURE_REGISTRY_SCRIPT = Path(os.environ["FIGURE_REGISTRY_SCRIPT"]) if os.environ.get("FIGURE_REGISTRY_SCRIPT") else None
 
 # Folder names to skip entirely during recursive batch conversion (comma-separated).
@@ -52,5 +59,5 @@ SKIP_FOLDERS = set(f for f in os.environ.get("CONVERTER_SKIP_FOLDERS", "").split
 
 if __name__ == "__main__":
     for name in ("REPO_ROOT", "BOOKS_DIR", "OUTPUT_DIR", "SURYA_VENV_PY", "SURYA_ADAPTER",
-                 "INDEXER_SCRIPT", "VAULT_SEARCH_DIR", "FIGURE_REGISTRY_SCRIPT", "SKIP_FOLDERS"):
+                 "VAULT_SEARCH_DIR", "VAULT_SEARCH_PY", "INDEXER_SCRIPT", "FIGURE_REGISTRY_SCRIPT", "SKIP_FOLDERS"):
         print(f"{name} = {globals()[name]}")

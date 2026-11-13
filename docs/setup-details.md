@@ -9,13 +9,12 @@ step; the text below is unchanged.
 - **Profile C only** — the semantic search index (LanceDB + a local embedding
   model via ollama). Semantic search pays off once there are more than a
   handful of books; for a small personal library, A or B first and add it later.
-  **This repo ships no indexer.** `post_convert.py --index` only shells out
-  to whatever `INDEXER_SCRIPT` points at, and prints `[skip]` when it is
-  unset. To actually get semantic search, point `INDEXER_SCRIPT` at the
-  indexer from the companion repo
-  [vault-search](https://github.com/drpwchen/vault-search) (or any indexer
-  of your own with the same CLI: `<script> --incremental`, `<script>
-  --book <name>`). Grep works out of the box with no extra install.
+  **This repo ships no indexer and talks to no indexer CLI.** It produces a
+  corpus folder (format `t2n-corpus/1`); the companion repo
+  [vault-search](https://github.com/drpwchen/vault-search) makes that folder
+  searchable with one command, `server/corpus.py add <corpus root>` — see
+  Step 5. Grep works out of the box with no extra install. Profiles A and B
+  need none of this.
 
 ## Step 2 — What requirements.txt does and does not cover
 
@@ -27,8 +26,9 @@ installable lines:
 - EPUB conversion needs the `pandoc` CLI on `PATH` (not a pip package) —
   check with `pandoc --version` and prompt the user to install it if missing
 - `requests` — only for `scan_fix_negatives.py --verify-dark` (ollama vision)
-- `lancedb` — only for `post_convert.py`'s index-coverage audit, and it is
-  useless on its own without an external indexer (see Step 1.1 / Step 5)
+- `lancedb` — not needed by this repo at all on the current path; vault-search
+  installs its own. Only the deprecated `INDEXER_SCRIPT` route's coverage
+  audit imports it (see Step 5)
 - OCR (Surya) lives in its own venv entirely — see Step 4.5
 
 So `pip install -r requirements.txt` alone never gives the user semantic
@@ -48,7 +48,11 @@ don't fit:
   `SURYA_ADAPTER` points at `converter/surya_adapter.py`, which ships in this
   repo; `SURYA_VENV_PY` points at a *separate* venv's interpreter, since the
   OCR stack must not share dependencies with the converter
-- Optional semantic search: `INDEXER_SCRIPT` + `VAULT_SEARCH_DIR`
+- Optional semantic search (Profile C): `VAULT_SEARCH_DIR` = the vault-search
+  checkout, and `VAULT_SEARCH_PY` = the Python of vault-search's environment if
+  it differs from this one. Only used by the `post_convert.py --index`
+  shortcut; running `corpus.py add` yourself needs neither. `INDEXER_SCRIPT`
+  is deprecated (Step 5)
 - Figure output/cache locations: env-driven constants documented at the top
   of `figures/figure_qc_gate.py` (default `./output/figures`, inside the
   user's vault attachments folder if they want embeds to resolve)
@@ -109,23 +113,78 @@ worthless (OCR-overlay scans, some digitized reprints). It forces OCR on
 every PDF under that directory, so point `--batch-dir` at a folder holding
 just the affected book.
 
-## Step 5 — The indexer is a hook, not an implementation
+## Step 5 — Hand the corpus to vault-search
 
-**This step is a hook, not an implementation.** `run_indexer()` runs the
-script at `INDEXER_SCRIPT`; with that unset it prints
-`[skip] INDEXER_SCRIPT not configured` and returns success, so a green run
-here does *not* mean an index exists. Before running it:
+Profile C only. Profiles A and B stop before this step and need no index,
+no embedding model and no vault-search.
 
-1. Install an indexer — the companion repo
-   [vault-search](https://github.com/drpwchen/vault-search) is the one this
-   pipeline was built against — or write one exposing the same two calls
-   (`--incremental`, `--book <name>`).
-2. `pip install lancedb` (not in `requirements.txt`) if you also want
-   `post_convert.py`'s index-coverage audit.
-3. Set `INDEXER_SCRIPT` and `VAULT_SEARCH_DIR`, and have the local embedding
-   model running (e.g. `ollama pull bge-m3` then `ollama serve`).
+**This repo does no indexing.** It produces a corpus folder; vault-search
+indexes it. The hand-off is a folder contract, `t2n-corpus/1`, specified once
+in vault-search:
+[`docs/corpus-format.md`](https://github.com/drpwchen/vault-search/blob/main/docs/corpus-format.md).
 
-Then verify the index actually returns results for a test query before
+### The sequence
+
+```bash
+# 1. convert (books → OUTPUT_DIR/<Book>/full_text.md + chapter files)
+python converter/convert.py --batch-dir <BOOKS_DIR>
+# 2. re-split into the corpus root: per-book _manifest.json + root corpus.json
+python converter/convert.py --resplit <OUTPUT_DIR> --out <CORPUS_ROOT> --pdf-root <BOOKS_DIR>
+# 3. in vault-search's environment: validate, index, audit, print the env line
+python <vault-search>/server/corpus.py add <CORPUS_ROOT>
+```
+
+- `<CORPUS_ROOT>` is a new directory, never `OUTPUT_DIR` itself (`--resplit`
+  refuses an `--out` that overlaps the source).
+- Step 2 is required. The `_manifest.json` per book (page ranges, real chapter
+  numbers, `kind`) is what the indexer reads, and `corpus.json`
+  (`{"format": "t2n-corpus/1", "kind": "textbook"}`) is what marks the folder
+  as a corpus. `--resplit` writes `corpus.json` only when it is absent and
+  never overwrites one. `python converter/split_manifest.py --validate
+  <CORPUS_ROOT>/<Book>` checks one book's split.
+- `python <vault-search>/server/corpus.py check <CORPUS_ROOT>` validates
+  without indexing — run it first if the corpus is large.
+- After adding books, re-run steps 1–3; `--resplit` skips books whose output
+  already exists (`--force` rebuilds).
+
+### Guidelines
+
+Clinical guidelines live in their own folder of the corpus,
+`<CORPUS_ROOT>/_Guidelines/<Name>/`, one folder per guideline; vault-search
+treats each as its own source and tags it `guideline`. `--batch-dir` writes
+every PDF to `OUTPUT_DIR/<stem>/`, so convert guidelines in a separate run
+with `OUTPUT_DIR` pointed at the `_Guidelines` folder of the same source
+corpus — no flag needed:
+
+```bash
+OUTPUT_DIR=<OUTPUT_DIR>/_Guidelines python converter/convert.py --batch-dir <GUIDELINE_PDFS>
+# PowerShell: $env:OUTPUT_DIR="<OUTPUT_DIR>\_Guidelines"; python converter\convert.py --batch-dir <GUIDELINE_PDFS>; Remove-Item Env:OUTPUT_DIR
+python converter/convert.py --resplit <OUTPUT_DIR> --out <CORPUS_ROOT> --pdf-root <BOOKS_DIR> --pdf-root <GUIDELINE_PDFS>
+```
+
+`--resplit` treats `_Guidelines` as one top-level folder: each
+`_Guidelines/<Name>/` is split from its own PDF, and a single
+`<CORPUS_ROOT>/_Guidelines/_manifest.json` covers all of them (file paths
+inside it are `<Name>/<file>`). Keep the guideline PDFs' file names equal to
+the folder names you want (`<Name>.pdf` → `_Guidelines/<Name>/`).
+
+### The `post_convert.py --index` shortcut
+
+`python converter/post_convert.py --index --corpus <CORPUS_ROOT>` runs step 3
+for you when `VAULT_SEARCH_DIR` points at a vault-search checkout (the repo,
+containing `server/corpus.py`); set `VAULT_SEARCH_PY` to vault-search's
+Python if it lives in another environment. It exits with `corpus.py`'s exit
+code. With `VAULT_SEARCH_DIR` unset, or pointing at something that is not a
+checkout, it runs nothing, prints `[skip]` and the exact command, and exits
+0 — so a green run does *not* mean an index exists.
+
+`INDEXER_SCRIPT` (an indexer with an `--incremental` / `--book <name>` CLI)
+is **deprecated**: when set it still runs as before, with a warning on stderr,
+and `--audit` still reads that indexer's `lance_db` / `textbook_chunks` table
+under `VAULT_SEARCH_DIR`. vault-search's current indexer does not have that
+CLI; move to `corpus.py add`.
+
+Then verify a test query returns results (vault-search's README) before
 telling the user it's ready. If the user does not want any of this, say
 plainly that grep over `<OUTPUT_DIR>/` is the whole search story — that is a
 supported configuration, not a degraded one.

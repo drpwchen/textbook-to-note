@@ -20,9 +20,9 @@
 |---|---|---|
 | **A · 只要轉檔** | 你的 PDF/EPUB 變成乾淨、可 grep 的 markdown，含頁碼標記、表格、圖表引用標記。用 `grep` 搜。 | `pip install -r requirements.txt`，然後跑 `converter/convert.py`。就這樣——不用 GPU、不用 ollama、不用索引。 |
 | **B · A ＋ 筆記工作流** | 讓 AI 從這個語料庫寫出結構化、逐條引用的筆記，圖片經 QC gate 抽出。 | A，再加 [`skills/`](skills/) 兩個 skill 與 [`workflows/note-writing.md`](workflows/note-writing.md)。 |
-| **C · B ＋ 語意搜尋** | 跨書用「意思」而不是關鍵字檢索——當你開始想不起來「那段在哪一本」時才值得做。 | B，再加一個索引器：姊妹專案 [vault-search](https://github.com/drpwchen/vault-search)、本機 embedding 模型、設好 `INDEXER_SCRIPT`。 |
+| **C · B ＋ 語意搜尋** | 跨書用「意思」而不是關鍵字檢索——當你開始想不起來「那段在哪一本」時才值得做。 | B，再加姊妹專案 [vault-search](https://github.com/drpwchen/vault-search) 與本機 embedding 模型。之後三個指令：`convert.py` → `convert.py --resplit <output> --out <corpus>` → `corpus.py add <corpus>`（在 vault-search 裡跑）。 |
 
-**這個 repo 不含索引器**：路線 C 的語意搜尋來自 vault-search（或任何實作同一組 `--incremental` / `--book <name>` CLI 的索引器），`post_convert.py --index` 只是呼叫它的掛勾。路線 A 是完整支援的終點，不是次級選項——幾十本書的規模，直接 grep 轉好的 markdown 真的就夠了。
+**這個 repo 不含索引器，也不呼叫任何索引器**：它只產出一個語料資料夾；要讓這個資料夾可搜尋，是 vault-search 的選配步驟，一個指令 `server/corpus.py add <corpus>`。把轉好的輸出變成這種語料的是 `--resplit`（每本書一個 `_manifest.json`，根目錄一個 `corpus.json`，格式見 [`t2n-corpus/1`](https://github.com/drpwchen/vault-search/blob/main/docs/corpus-format.md)）。路線 A、B 完全不需要 RAG——不用索引、不用 embedding 模型、不用 vault-search。路線 A 是完整支援的終點，不是次級選項——幾十本書的規模，直接 grep 轉好的 markdown 真的就夠了。
 
 如果你是叫 AI 幫你裝，直接告訴它你要哪一條線；[`AGENTS.md`](AGENTS.md) 第一件事就是問這個，然後跳過你這條線用不到的步驟。
 

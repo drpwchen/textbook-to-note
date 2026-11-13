@@ -24,12 +24,16 @@ problem; you can move up later without redoing anything.
 |---|---|---|
 | **A · Converter only** | Your PDFs/EPUBs as clean, greppable markdown with page markers, tables, and figure-reference markers. Search with `grep`. | `pip install -r requirements.txt`, then `converter/convert.py`. Nothing else — no GPU, no ollama, no index. |
 | **B · A + the note workflow** | An AI writes structured, per-claim-cited notes from that corpus, with figures extracted through a QC gate. | A, plus the two skills in [`skills/`](skills/) and [`workflows/note-writing.md`](workflows/note-writing.md). |
-| **C · B + semantic search** | Cross-book retrieval by meaning rather than keyword — worth it once "which book was that in?" stops being obvious. | B, plus an indexer: the companion repo [vault-search](https://github.com/drpwchen/vault-search), a local embedding model, and `INDEXER_SCRIPT`. |
+| **C · B + semantic search** | Cross-book retrieval by meaning rather than keyword — worth it once "which book was that in?" stops being obvious. | B, plus the companion repo [vault-search](https://github.com/drpwchen/vault-search) and a local embedding model. Then three commands: `convert.py` → `convert.py --resplit <output> --out <corpus>` → `corpus.py add <corpus>` (run in vault-search). |
 
-**This repo ships no indexer.** Profile C's semantic search comes from vault-search (or any
-indexer exposing the same `--incremental` / `--book <name>` CLI); `post_convert.py --index`
-is only the hook that calls it. Profile A is a fully supported end state, not a degraded one —
-for a few dozen books, grep over the converted markdown is genuinely enough.
+**This repo ships no indexer and calls none.** It produces a corpus folder; making that folder
+searchable is an opt-in step done by vault-search with one command, `server/corpus.py add
+<corpus>`. `--resplit` is what turns converted output into such a corpus (a per-book
+`_manifest.json` and a root `corpus.json`, format
+[`t2n-corpus/1`](https://github.com/drpwchen/vault-search/blob/main/docs/corpus-format.md)).
+Profiles A and B need no RAG at all — no index, no embedding model, no vault-search. Profile A
+is a fully supported end state, not a degraded one — for a few dozen books, grep over the
+converted markdown is genuinely enough.
 
 If you're having an AI set this up, tell it which profile you want; [`AGENTS.md`](AGENTS.md)
 asks this first and then skips the steps your profile doesn't need.

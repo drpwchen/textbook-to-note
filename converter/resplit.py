@@ -36,8 +36,11 @@ import split_manifest as sm  # noqa: E402
 
 CONFIG_NAME = "_split_config.json"
 REPORT_NAME = "_resplit_report.json"
+# corpus-root marker of the t2n-corpus/1 format (spec: vault-search docs/corpus-format.md)
+CORPUS_MARKER_NAME = "corpus.json"
+CORPUS_MARKER = {"format": "t2n-corpus/1", "kind": "textbook"}
 ROOT_FILES_NOT_COPIED = {"_chapter_index.json", "batch_progress.json", "conversion_summary.json",
-                         "INDEX.md", "already_converted.json", REPORT_NAME}
+                         "INDEX.md", "already_converted.json", REPORT_NAME, CORPUS_MARKER_NAME}
 SPLIT_NAME_RES = (
     re.compile(r"^ch\d{2,}[a-z]?(_[A-Za-z0-9_]*)?\.md$"),
     re.compile(r"^pages_\d{4}-\d{4}\.md$"),
@@ -904,6 +907,21 @@ def load_json(path) -> dict:
     return {k: v for k, v in raw.items() if not k.startswith("_") or isinstance(v, dict)}
 
 
+def ensure_corpus_marker(out: Path) -> None:
+    """Write <out>/corpus.json if absent; an existing one is never touched (warn if it differs)."""
+    p = out / CORPUS_MARKER_NAME
+    if not p.exists():
+        p.write_bytes((json.dumps(CORPUS_MARKER, indent=2) + "\n").encode("utf-8"))  # LF on every OS
+        return
+    try:
+        same = json.loads(p.read_text(encoding="utf-8")) == CORPUS_MARKER
+    except (ValueError, UnicodeDecodeError):
+        same = False
+    if not same:
+        print(f"[resplit] corpus.json at {p} is not {json.dumps(CORPUS_MARKER)}; left as is",
+              file=sys.stderr)
+
+
 def run(corpus, out, pdf_roots, books=None, split_config=None, pdf_map=None, force=False) -> int:
     corpus, out = Path(corpus), Path(out)
     if not corpus.is_dir():
@@ -914,6 +932,7 @@ def run(corpus, out, pdf_roots, books=None, split_config=None, pdf_map=None, for
         print(f"[resplit] refused: {bad}", file=sys.stderr)
         return 2
     out.mkdir(parents=True, exist_ok=True)
+    ensure_corpus_marker(out)
     cfg_path = Path(split_config) if split_config else out / CONFIG_NAME
     config = load_json(cfg_path)
     pmap = load_json(pdf_map)
