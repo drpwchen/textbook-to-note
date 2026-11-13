@@ -102,3 +102,46 @@ python converter/scan_table_pass.py --from-progress PROGRESS.json --books-json B
 Requires the Docling rung (`T2N_DOCLING`; see [`architecture.md`](architecture.md)). Docling loads
 a model onto the GPU — if you gate GPU jobs with a lease or semaphore, wrap the call in it. No
 ligature repair is applied on this path: a scanned page has no text layer to vouch for a repair.
+
+## When a resplit book fails validation
+
+`post_convert.py` (default run, `--index`, `--resplit-only`, `--backfill`) reads
+`<corpus>/_resplit_report.json`. A book recorded there as `valid: false` is listed under
+`[FAIL]` with its failing checks, and **the hand-off to ask-your-library does not run** until
+it validates: `corpus.py add` takes the whole corpus, so this is the only way to keep a wrongly
+split book out of the index. The run exits 1. Nothing is re-validated or re-split to decide.
+
+The loop for one book:
+
+1. Read the check names after `[FAIL]` and the hint printed under each. The usual fix is an entry
+   for the book in `<corpus>/_split_config.json` (every entry needs a `reason` that says what is
+   in the book, not that the check failed):
+
+   | Check | What it means | Config keys that address it |
+   |---|---|---|
+   | `chapter_gap` | a chapter number missing between the lowest and highest | `missing_chapters_ok` (really absent from the source); `chapter_regex` / `chapter_level` / `chapter_number_overrides` (misread); `chapter_numbers: false` (book not numbered) |
+   | `chapter_order` | a number lower than an earlier one | `chapter_number_overrides`, `drop_titles` |
+   | `chapter_unmapped` | an outline `Chapter N` no file carries | `split_levels` / `chapter_level`; `missing_chapters_ok` |
+   | `toc_count` | chapter count ≠ `toc_chapters` | fix `toc_chapters`, or the split level |
+   | `chapter_numbers_missing` | no file has a number, though one was expected | `chapter_regex` / `chapter_level`; `chapter_numbers: false` |
+   | `title_mismatch` | a file's title is not on its first pages | `page_offset`; `anchor_titles: true` or a `toc` with pages; `retitle`; `title_check_skip` (title is an image) |
+   | `page_overlap` / `page_gap` | files share pages / pages with text fall between files | `page_offset`, `anchor_titles`, `toc`, `body_start_page`; `method: reconstruct` + `exclude_files` for a duplicated old file |
+   | anything else | manifest and files disagree | re-split with `--force`; if it persists, it is a bug — report it |
+
+2. Re-split that book and validate it (both commands are printed with the book's real paths):
+
+   ```
+   python converter/convert.py --resplit <OUTPUT_DIR> --out <CORPUS_DIR> --pdf-root <dir> --book "<book>" --force
+   python converter/split_manifest.py --validate <CORPUS_DIR> --book "<book>"
+   ```
+
+3. Run `post_convert.py --index` again. With no book held, the hand-off runs.
+
+**Chapter numbers the validator cannot see.** A split can be internally consistent and still
+number every chapter wrong (all off by a constant). Each book resplit in a run also gets
+`chapter_check.py`: every numbered file's first two pages are searched for its own number
+(`Chapter n`, a bare `n` line, `n` + a title word, `n.x` figure/table numbering). The counts are
+printed; a book with more files *contradicting* their number than confirming it gets `[WARN]`
+and the first few files to look at. This never fails the run: in-text cross-references
+("see Chapter 17") make a few files contradict in many correct books. Run it over a whole
+corpus with `python converter/chapter_check.py <CORPUS_DIR> [--book B] [--sample N] [--json FILE]`.

@@ -300,10 +300,76 @@ def test_index_cli_exit_code():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def _report(root, entries):
+    (root / rs.REPORT_NAME).write_text(json.dumps(entries), encoding="utf-8")
+
+
+def test_held_books():
+    """split-acceptance-gate: a book the validator failed holds back the hand-off."""
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        root = tmp / "root"
+        for b in ("BookA", "BookB", "Errored", "NoValid"):
+            (root / b).mkdir(parents=True)
+        vs = tmp / "vs"
+        (vs / "server").mkdir(parents=True)
+        (vs / "server" / "corpus.py").write_text("", encoding="utf-8")
+        stale = {"Gone": {"status": "ok", "valid": False, "errors": ["chapter_gap"]},
+                 "Errored": {"status": "error", "reason": "x"},
+                 "NoValid": {"status": "ok"},
+                 "BookB": {"status": "ok", "valid": True, "errors": []}}
+        _report(root, stale)
+        check("stale: nothing held", pc.held_books(root) == [], pc.held_books(root))
+        _report(root, dict(stale, BookA={"status": "ok", "valid": False, "errors": ["chapter_gap"]}))
+        check("held: BookA", pc.held_books(root) == [("BookA", ["chapter_gap"])], pc.held_books(root))
+        failures, out, _ = captured(pc.report_held, root)
+        check("held: label", failures == ["invalid split: BookA [chapter_gap]"], failures)
+        check("held: hint + fix commands",
+              "missing_chapters_ok" in out and '--book "BookA" --force' in out
+              and "split_manifest.py" in out and '--validate' in out, out)
+        check("held: unknown check gets the default hint",
+              pc.CHECK_HINTS.get("schema") is None and "report a bug" in pc.DEFAULT_HINT)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_held_cli():
+    """The real CLI: --index and --backfill skip corpus.py while a book is held; run it once fixed."""
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        vs, root, log = tmp / "vs", tmp / "root", tmp / "argv.json"
+        (vs / "server").mkdir(parents=True)
+        (root / "BookA").mkdir(parents=True)
+        (vs / "server" / "corpus.py").write_text(
+            "import json, sys\n"
+            f"open(r'{log}', 'a', encoding='utf-8').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+            "sys.exit(0)\n", encoding="utf-8")
+        env = {k: v for k, v in os.environ.items() if k not in ("INDEXER_SCRIPT", "VAULT_SEARCH_PY")}
+        env.update(VAULT_SEARCH_DIR=str(vs), OUTPUT_DIR=str(tmp / "output"), CORPUS_DIR=str(root),
+                   PYTHONIOENCODING="utf-8")
+        _report(root, {"BookA": {"status": "ok", "valid": False, "errors": ["chapter_gap"]}})
+        for flag in ("--index", "--backfill", "--resplit-only"):
+            p = subprocess.run([sys.executable, "-B", str(HERE / "post_convert.py"), flag, "--corpus", str(root)],
+                               env=env, capture_output=True, text=True, encoding="utf-8")
+            check(f"held cli {flag}: corpus.py not run, exit 1, listed once",
+                  not log.exists() and p.returncode == 1
+                  and p.stdout.count("invalid split: BookA [chapter_gap]") == 1
+                  and ("[held]" in p.stdout) == (flag != "--resplit-only"),
+                  (p.returncode, p.stdout[-800:], p.stderr[-400:]))
+        _report(root, {"BookA": {"status": "ok", "valid": True, "errors": []}})
+        p = subprocess.run([sys.executable, "-B", str(HERE / "post_convert.py"), "--index", "--corpus", str(root)],
+                           env=env, capture_output=True, text=True, encoding="utf-8")
+        lines = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+        check("fixed: corpus.py add ran once, exit 0",
+              lines == [json.dumps(["add", str(root)])] and p.returncode == 0, (lines, p.returncode, p.stdout[-500:]))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     for t in (test_marker_written, test_marker_never_overwritten, test_source_marker_not_copied,
               test_byte_identical_otherwise, test_guideline_layout, test_index_routes,
-              test_index_cli_exit_code):
+              test_index_cli_exit_code, test_held_books, test_held_cli):
         try:
             t()
         except Exception as e:  # noqa: BLE001

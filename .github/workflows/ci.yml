@@ -38,6 +38,7 @@ jobs:
           python test_maintainer_config.py
           python test_chapter_numbers.py
           python test_runin_pairs.py
+          python test_chapter_check.py
       - name: Run figures contract tests
         shell: bash
         working-directory: figures

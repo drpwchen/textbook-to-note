@@ -8,15 +8,25 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
-## [Unreleased] — Docs: README quality pass (2026-11-14)
+## [0.8.3] — 2026-11-14 — Invalid splits held out of the index; `--force` keeps figure links; gap chapters
 
-### Docs
-- README (EN and zh-TW): support line after the quickstart pointer, new Cost and Limitations sections.
-- Replaced exact corpus sizes in README and CHANGELOG with "several hundred books".
-- README（英文與繁中）：quickstart 後加支持連結、新增「費用」與「限制」段落；README 與 CHANGELOG 中的精確語料庫書數改為概略說法。
-- Added `CITATION.cff`.
-
-## [0.8.3] — 2026-11-14 — `--force` keeps figure links; bare-numbered chapters that fill a gap
+### Added
+- **A book that fails split validation is held out of the search hand-off.** `post_convert.py`
+  used to count a resplit as done when it exited 0 and wrote a manifest; the validator's
+  verdict in `_resplit_report.json` was never read, so a wrongly split book was indexed like
+  any other. Now every book recorded as `valid: false` is listed under `[FAIL]` with its failing
+  checks, a hint per check naming the `_split_config.json` keys that address it, and the exact
+  re-split and validate commands for that book; while one exists, ask-your-library's
+  `corpus.py add` is not run (it takes the whole corpus) and the exit code is 1. Measured on
+  the author's corpus: 1 book held (a two-page-spread scan whose "chapters" 3 and 50 were a
+  street address and a garbled line), 0 after its config entry. Loop and check→key table:
+  `docs/corpus-maintenance.md`. Spec: `openspec/changes/archive/split-acceptance-gate/`.
+- **`converter/chapter_check.py`: chapter numbers vs each file's own pages.** A split can pass
+  every check and still number all chapters wrong (off by a constant). Every book resplit in a
+  `post_convert.py` run gets counts of files whose opening confirms / contradicts their
+  `chapter_number`, and a `[WARN]` when contradicted > confirmed. Report only — it never fails
+  the run (in-text cross-references make a few files contradict in many correct books; on the
+  author's corpus no book trips the warning). Also a CLI over a whole corpus.
 
 ### Changed
 - **`--resplit --force` keeps a book's `figures*` / `images` folders.** `post_convert.py` links
@@ -36,6 +46,13 @@ loose semantic versioning.
   the 24 hand-written overrides gave. Full corpus resplit before/after: several hundred books, 19,128
   files, 0 changed (books with `chapter_number_overrides` are still never promoted).
   Spec: `openspec/changes/archive/resplit-gap-chapters/`.
+
+### Docs
+- README (EN and zh-TW): support line after the quickstart pointer, new Cost and Limitations sections.
+- Replaced exact corpus sizes in README and CHANGELOG with "several hundred books".
+- README（英文與繁中）：quickstart 後加支持連結、新增「費用」與「限制」段落；README 與 CHANGELOG 中的精確語料庫書數改為概略說法。
+- Added `CITATION.cff`.
+- `docs/corpus-maintenance.md`: "When a resplit book fails validation" (the fix loop, check → config keys); README: every book of the author's corpus now passes the validator.
 
 ## [0.8.2] — 2026-11-14 — Few-chapter PDFs split without config; lost chapter numbers fail; opt-in glossary pairing
 

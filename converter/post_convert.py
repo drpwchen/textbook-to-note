@@ -31,7 +31,14 @@ existing PDF, or a PDF of that file name must sit under T2N_PDF_ROOTS; a book wi
 copy is left as it was. Unset, a book with no PDF is
 resplit by carrying its existing split, as before.
 
-Exit code: 1 (listing what failed) when a resplit, a figure link or the hand-off fails.
+A book the validator fails (`valid: false` in <corpus>/_resplit_report.json) is listed under
+[FAIL] with a hint per failing check and the commands that re-split and re-validate it; while
+one exists the hand-off is not run (corpus.py add takes the whole corpus). Books resplit in the
+run also get a chapter-number check against their own pages (report only, [WARN] when more
+files contradict their number than confirm it).
+
+Exit code: 1 (listing what failed) when a resplit, a figure link or the hand-off fails, or a
+book fails validation.
 """
 
 import argparse
@@ -375,10 +382,99 @@ def ensure_figure_links(corpus: Path = None, dry_run: bool = False) -> list[str]
 
 
 def refresh_corpus(corpus: Path) -> list[str]:
-    """resplit_plan -> run_resplit -> ensure_figure_links. Returns failure labels."""
-    failures = [f"resplit: {b}" for b in run_resplit(resplit_plan(corpus), corpus)]
+    """resplit_plan -> run_resplit -> ensure_figure_links -> chapter check of this run's books
+    -> held books. Returns failure labels."""
+    plan = resplit_plan(corpus)
+    failed = run_resplit(plan, corpus)
+    failures = [f"resplit: {b}" for b in failed]
     failures += [f"figure link: {x}" for x in ensure_figure_links(corpus)]
+    check_chapters(corpus, [b for b, _ in plan if b not in failed])
+    failures += report_held(corpus)
     return failures
+
+
+# What to change in <corpus>/_split_config.json when the validator fails a book on a check
+# (spec: openspec/specs/conversion/spec.md, "A per-book split config steers --resplit").
+# Every entry needs a `reason`; *_ok / *_skip keys only for a cause that is really in the book.
+CHECK_HINTS = {
+    "chapter_gap": "chapters really absent from the source -> missing_chapters_ok: [N, ...]; numbers "
+                   "misread -> chapter_regex / chapter_level / chapter_number_overrides; the book has "
+                   "no chapter numbering -> chapter_numbers: false",
+    "chapter_order": "a number read from the wrong outline entry -> chapter_number_overrides / drop_titles",
+    "chapter_unmapped": "outline chapters merged into a neighbour -> split_levels / chapter_level; chapter "
+                        "absent from the source -> missing_chapters_ok",
+    "toc_count": "toc_chapters is the book's printed chapter count; fix it, or the split level "
+                 "(split_levels / chapter_level)",
+    "chapter_numbers_missing": "chapter_regex / chapter_level so the chapter entries are found, or "
+                               "chapter_numbers: false if the book is not numbered",
+    "title_mismatch": "outline pages off by a constant -> page_offset; outline points at wrong pages -> "
+                      "anchor_titles: true (or a toc with pages); title differs from the print -> retitle; "
+                      "title is an image -> title_check_skip: {file: reason}",
+    "page_overlap": "outline pages wrong -> page_offset / anchor_titles / toc; duplicate old file -> "
+                    "method: reconstruct + exclude_files",
+    "page_gap": "outline skips pages -> toc / anchor_titles; body starts late -> body_start_page",
+    "page_range": "the md's page markers disagree with the manifest: re-split with --force; if it "
+                  "persists, report a bug",
+    "empty_file": "a split entry with no text -> drop_titles",
+}
+DEFAULT_HINT = "not a config problem: re-split with --force; if it persists, report a bug"
+
+
+def held_books(corpus: Path) -> list[tuple[str, list[str]]]:
+    """Books <corpus>/_resplit_report.json records as resplit but invalid, that still exist."""
+    p = Path(corpus) / "_resplit_report.json"
+    try:
+        report = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+    except (ValueError, UnicodeDecodeError):
+        return []
+    return [(b, list(r.get("errors") or [])) for b, r in sorted(report.items())
+            if isinstance(r, dict) and r.get("status") == "ok" and r.get("valid") is False
+            and (Path(corpus) / b).is_dir()]
+
+
+def report_held(corpus: Path) -> list[str]:
+    """Print each held book with a hint per failing check and the commands that fix and
+    re-check it. Returns their failure labels (empty when nothing is held)."""
+    held = held_books(corpus)
+    if not held:
+        return []
+    corpus = Path(corpus).resolve()
+    cfg = corpus / "_split_config.json"
+    print("\n=== Invalid splits (held out of the hand-off until they validate) ===")
+    for book, errors in held:
+        print(f"  [FAIL] {book}: {', '.join(errors) or 'invalid'}")
+        for e in errors or ["?"]:
+            print(f"    {e}: {CHECK_HINTS.get(e, DEFAULT_HINT)}")
+        roots = " ".join(f'--pdf-root "{r}"' for r in pdf_roots_for(book)) or "--pdf-root <BOOKS_DIR>"
+        print(f"    fix the \"{book}\" entry of {cfg} (with a reason), then:")
+        print(f'      python "{HERE / "convert.py"}" --resplit "{OUTPUT_BASE}" --out "{corpus}" {roots} '
+              f'--book "{book}" --force')
+        print(f'      python "{HERE / "split_manifest.py"}" --validate "{corpus}" --book "{book}"')
+    return [f"invalid split: {b} [{','.join(e)}]" for b, e in held]
+
+
+def check_chapters(corpus: Path, books: list[str]) -> None:
+    """Chapter numbers vs each file's own pages, for the books resplit in this run. Report only."""
+    if not books:
+        return
+    import chapter_check
+    print("\n=== Chapter check (report only) ===")
+    for b in books:
+        d = Path(corpus) / b
+        if not (d / "_manifest.json").exists():
+            continue
+        r = chapter_check.check_book(d)
+        c = r["counts"]
+        if not r["rows"]:
+            continue
+        print(f"  chapter check {b}: confirmed {c['confirmed']}, unknown {c['unknown']}, "
+              f"contradicted {c['contradicted']}")
+        if r["suspect"]:
+            print(f"  [WARN] {b}: more files contradict their chapter number than confirm it - "
+                  f"look at these openings (chapter_number_overrides / chapter_regex):")
+            for row in [x for x in r["rows"] if x["verdict"] == "contradicted"][:5]:
+                print(f"    {row['file']}: n={row['chapter_number']}, page says chapter "
+                      f"{row['other_chapter_numbers']}")
 
 
 CORPUS_FORMAT_URL = "https://github.com/drpwchen/ask-your-library/blob/main/docs/corpus-format.md"
@@ -563,6 +659,16 @@ def main():
 
     def handoff():
         nonlocal handoff_rc
+        if not INDEXER_SCRIPT:
+            held = [f for f in failures if f.startswith("invalid split: ")]
+            if not held and args.backfill:
+                held = report_held(root)
+                failures.extend(held)
+            if held:
+                print(f"\n=== Semantic search hand-off ===\n  [held] not run: {len(held)} book(s) in "
+                      f"{root} fail validation (listed above); corpus.py add takes the whole corpus, "
+                      f"so nothing is indexed until they validate.")
+                return
         handoff_rc = run_indexer(root)
         if handoff_rc:
             failures.append(f"ask-your-library hand-off exited {handoff_rc}")
