@@ -223,7 +223,7 @@ venv==（不是本 repo 的：它需要 `lancedb` 等套件，本 repo 的 `requ
 
 ```bash
 claude mcp add ask-your-library -e VAULT_SEARCH_TEXTBOOK_DB_PATH=<上面印出的路徑> \
-    -- python <ask-your-library>/server/mcp_server.py
+    -- <ayl-python> <ask-your-library>/server/mcp_server.py
 ```
 
 開新的 Claude Code session 問：
