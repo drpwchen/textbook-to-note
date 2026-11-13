@@ -8,7 +8,21 @@ failure mode found by measuring real books, with a deliberate fix and a kill-swi
 The format is based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 loose semantic versioning.
 
-## [0.8.2] — 2026-11-14 — Few-chapter PDFs split without config; lost chapter numbers fail
+## [0.8.2] — 2026-11-14 — Few-chapter PDFs split without config; lost chapter numbers fail; opt-in glossary pairing
+
+### Added
+- **`T2N_RUNIN_PAIRS=1`** (default off; unset = byte-identical) keeps glossary terms next to
+  their definitions on born-digital pages. A run-in glossary (bold term, definition on the same
+  baseline, hanging indent) whose PDF stores every term before every definition, as the
+  sample's Key Terms pages do, came out as one line of glued-together terms followed by the
+  definitions; it is neither two columns nor a table, so the column sort rightly left it alone.
+  With the flag, each entry becomes one paragraph, `**term** definition`, on pages with at
+  least three such pairs whose definition is not the next line in the stream. Measured on 25
+  born-digital PDFs (15,515 pages: the sample + 24 of the author's books, 17 of them with
+  glossary / key-terms matter): 4 pages change, all corrections (sample p28–30, 70 entries;
+  one figure of `Week N:` heads in a cardiac-rehab manual), 0 regressions, and with the flag
+  unset every page is identical to 0.8.1. Opt-in because the real-book evidence is one page.
+  Spec: `openspec/changes/archive/runin-glossary-pairs/`. Tests: `converter/test_runin_pairs.py`.
 
 ### Changed
 - **A PDF whose outline has only one or two `Chapter N` entries** (an excerpt, a short
